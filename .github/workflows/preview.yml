@@ -1,0 +1,41 @@
+name: preview
+
+on:
+  push:
+    branches:
+      - dev
+
+jobs:
+  build-and-publish:
+    name: Build and Publish Preview Package
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v3
+      
+      - name: Generate Preview Version
+        id: version
+        run: |
+          TIMESTAMP=$(date -u +"%y%m%d%H%M%S")
+          echo "VERSION=1.0.0-preview.$TIMESTAMP" >> $GITHUB_ENV
+
+      - name: Setup .NET SDK
+        uses: actions/setup-dotnet@v3
+        with:
+          dotnet-version: '9.0'
+
+      - name: Restore Dependencies
+        run: dotnet restore
+
+      - name: Build the Project
+        run: dotnet build --configuration Preview /p:Version=${{ env.VERSION }}
+
+      - name: Pack NuGet Package
+        run: dotnet pack --configuration Preview --output ./artifacts /p:Version=${{ env.VERSION }}
+        env:
+          NUGET_API_KEY: ${{ secrets.NUGET_API_KEY }}
+
+      - name: Publish to NuGet
+        run: |
+          dotnet nuget push ./artifacts/*.nupkg --api-key ${{ secrets.NUGET_API_KEY }} --source https://api.nuget.org/v3/index.json

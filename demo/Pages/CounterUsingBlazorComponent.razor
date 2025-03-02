@@ -1,0 +1,42 @@
+@page "/blazor-counter"
+@implements IDisposable
+@inject Blazorify.Flux.Interfaces.IStore store
+
+<PageTitle>Counter</PageTitle>
+
+<h1>Counter</h1>
+
+<p role="status">Current count: @currentCount</p>
+
+<button class="btn btn-primary" @onclick="IncrementCount">
+	Increment
+</button>
+
+<button class="btn btn-primary" @onclick="DecrementCount">
+	Decrement
+</button>
+
+@code {
+	private int currentCount = 0;
+	private IDisposable? subscription;
+
+	protected override void OnInitialized() {
+		base.OnInitialized();
+
+		this.subscription = this.store.Subscribe<CounterState>(state => {
+			this.currentCount = state.CurrentCount;
+		});
+	}
+
+	private void IncrementCount() {
+		this.store.Dispatch<CounterActions.Increment>();
+	}
+
+	private void DecrementCount() {
+		this.store.Dispatch<CounterActions.Decrement>();
+	}
+
+	public void Dispose() {
+		this.subscription?.Dispose();
+	}
+}
