@@ -84,16 +84,24 @@ namespace Blazorify.Flux.Core {
 		}
 
 		public void Dispatch<TAction>() where TAction : IAction, new() {
-			var action = Activator.CreateInstance<TAction>();
+			this.Dispatch(new TAction());
+		}
 
-			lock (this.queuedActions) {
-				this.queuedActions.Enqueue(action);
-			}
+		public void Dispatch<TAction>(TAction action) where TAction : IAction {
+			this.Dispatch((IAction)action);
+		}
 
-			this.DispatchQueuedActions();
+		public void Dispatch<TAction>(Func<TAction> action) where TAction : IAction {
+			this.Dispatch(action.Invoke());
+		}
+
+		public void Dispatch<TAction>(Func<TAction, TAction> action) where TAction : IAction, new() {
+			this.Dispatch(action.Invoke(new TAction()));
 		}
 
 		public void Dispatch(IAction action) {
+			ArgumentNullException.ThrowIfNull(action);
+
 			lock (this.queuedActions) {
 				this.queuedActions.Enqueue(action);
 			}

@@ -36,11 +36,27 @@ namespace Blazorify.Flux.Components {
 		}
 
 		protected void Dispatch<TAction>() where TAction : IAction, new() {
-			this.logger.LogDebug("[{actionType}] Dispatching action", typeof(TAction));
+			this.Dispatch(new TAction());
+		}
 
-			this.store.Dispatch<TAction>();
+		protected void Dispatch<TAction>(TAction action) where TAction : IAction {
+			this.Dispatch((IAction)action);
+		}
 
-			this.logger.LogDebug("[{actionType}] Action has been dispatched", typeof(TAction));
+		protected void Dispatch<TAction>(Func<TAction> action) where TAction : IAction {
+			this.Dispatch(action.Invoke());
+		}
+
+		protected void Dispatch<TAction>(Func<TAction, TAction> action) where TAction : IAction, new() {
+			this.Dispatch(action.Invoke(new TAction()));
+		}
+
+		protected void Dispatch(IAction action) {
+			this.logger.LogDebug("[{actionType}] Dispatching action", typeof(IAction));
+
+			this.store.Dispatch(action);
+
+			this.logger.LogDebug("[{actionType}] Action has been dispatched", typeof(IAction));
 		}
 
 		public async ValueTask DisposeAsync() {
