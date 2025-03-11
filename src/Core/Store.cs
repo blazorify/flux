@@ -3,15 +3,61 @@ using System.Collections.Concurrent;
 using System.Collections.Generic;
 using System.Linq;
 using Blazorify.Flux.Interfaces;
+using Blazorify.Flux.Options;
+using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Options;
 
 namespace Blazorify.Flux.Core {
 	public class Store : IStore {
+		private readonly IOptions<BlazorifyFluxOptions> optionsAccessor;
+		private readonly IServiceProvider serviceProvider;
+		private readonly ILogger<Store> logger;
+
+		private Boolean isInitialized = false;
+
 		private readonly Dictionary<Type, Object> features = [];
 		private readonly Dictionary<Type, Action<IAction, Action<Object?>>> reducers = [];
 		private readonly Dictionary<Type, Action<IAction>> effects = [];
 
 		private readonly ConcurrentQueue<IAction> queuedActions = [];
 		private readonly Dictionary<Type, List<Delegate>> subscribers = [];
+
+		public Store(
+			IOptions<BlazorifyFluxOptions> optionsAccessor,
+			IServiceProvider serviceProvider,
+			ILogger<Store> logger
+		) {
+			this.optionsAccessor = optionsAccessor;
+			this.serviceProvider = serviceProvider;
+			this.logger = logger;
+		}
+
+		public void Initialize() {
+			if (this.isInitialized) {
+				return;
+			}
+
+			var featureTypes = this.optionsAccessor.Value.Assemblies
+				.SelectMany(assembly => assembly.GetTypes())
+				.Where(type => type.BaseType is { IsGenericType: true } && type.BaseType.GetGenericTypeDefinition() == typeof(FeatureBase<>));
+
+			foreach (var featureType in featureTypes) {
+				try {
+					var feature = ActivatorUtilities.CreateInstance(this.serviceProvider, featureType);
+
+					this.logger.LogDebug("Feature '{featureType}' has been discovered", featureType);
+
+					this.AddFeature((dynamic)feature);
+
+					this.logger.LogDebug("Feature '{featureType}' has been added", featureType);
+				} catch (Exception ex) {
+					this.logger.LogError(ex, ex.Message);
+				}
+			}
+
+			this.isInitialized = true;
+		}
 
 		public void AddFeature<TState>(IFeature<TState> feature) where TState : class, new() {
 			ArgumentNullException.ThrowIfNull(feature);

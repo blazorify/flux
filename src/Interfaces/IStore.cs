@@ -5,6 +5,8 @@ namespace Blazorify.Flux.Interfaces {
 	/// Defines the contract for the central store managing application state.
 	/// </summary>
 	public interface IStore {
+		public void Initialize();
+
 		public void AddFeature<TState>(IFeature<TState> feature) where TState : class, new();
 
 		//public void AddReducer<TState, TAction>(IReducer<TState> reducer) where TState : class, new() where TAction : IAction;
