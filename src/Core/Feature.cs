@@ -5,7 +5,7 @@ using System.Threading.Tasks;
 using Blazorify.Flux.Interfaces;
 
 namespace Blazorify.Flux.Core {
-	public abstract class FeatureBase<TState> : IFeature<TState> where TState : class, new() {
+	public abstract class Feature<TState> : IFeature<TState> where TState : class, new() {
 		protected readonly IStore store;
 		private TState state = new();
 
@@ -24,7 +24,7 @@ namespace Blazorify.Flux.Core {
 			get => this.reducers.SelectMany(m => m.Value);
 		}
 
-		protected FeatureBase(
+		protected Feature(
 			IStore store
 		) {
 			this.store = store;

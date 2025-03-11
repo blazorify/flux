@@ -4,7 +4,7 @@ using Blazorify.Flux.Demo.Data;
 using Blazorify.Flux.Interfaces;
 
 namespace Blazorify.Flux.Demo.State {
-	public class ForecastFeature : FeatureBase<ForecastState> {
+	public class ForecastFeature : Feature<ForecastState> {
 		private readonly WeatherForecastService weatherForecastService;
 
 		public ForecastFeature(

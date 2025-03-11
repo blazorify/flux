@@ -33,7 +33,7 @@ public static class CounterActions {
 A feature manages a specific state slice and defines how it responds to actions.
 
 ```csharp
-public class CounterFeature : FeatureBase<CounterState> {
+public class CounterFeature : Feature<CounterState> {
 	public CounterFeature(IStore store) : base(store) { }
 
 	protected override void ConfigureReducers(ReducerBuilder builder) {

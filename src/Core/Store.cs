@@ -40,7 +40,7 @@ namespace Blazorify.Flux.Core {
 
 			var featureTypes = this.optionsAccessor.Value.Assemblies
 				.SelectMany(assembly => assembly.GetTypes())
-				.Where(type => type.BaseType is { IsGenericType: true } && type.BaseType.GetGenericTypeDefinition() == typeof(FeatureBase<>));
+				.Where(type => type.BaseType is { IsGenericType: true } && type.BaseType.GetGenericTypeDefinition() == typeof(Feature<>));
 
 			foreach (var featureType in featureTypes) {
 				try {

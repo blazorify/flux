@@ -2,7 +2,7 @@ using Blazorify.Flux.Core;
 using Blazorify.Flux.Interfaces;
 
 namespace Blazorify.Flux.Demo.State {
-	public class CounterFeature : FeatureBase<CounterState> {
+	public class CounterFeature : Feature<CounterState> {
 		public CounterFeature(
 			IStore store
 		) : base(store) {
