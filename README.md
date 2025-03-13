@@ -34,8 +34,6 @@ A feature manages a specific state slice and defines how it responds to actions.
 
 ```csharp
 public class CounterFeature : Feature<CounterState> {
-	public CounterFeature(IStore store) : base(store) { }
-
 	protected override void ConfigureReducers(ReducerBuilder builder) {
 		builder.On<CounterActions.Increment>((state, action) => state with { CurrentCount = state.CurrentCount + 1 });
 		builder.On<CounterActions.Decrement>((state, action) => state with { CurrentCount = state.CurrentCount - 1 });

@@ -1,16 +1,14 @@
 using System;
 using Blazorify.Flux.Core;
 using Blazorify.Flux.Demo.Data;
-using Blazorify.Flux.Interfaces;
 
 namespace Blazorify.Flux.Demo.State {
 	public class ForecastFeature : Feature<ForecastState> {
 		private readonly WeatherForecastService weatherForecastService;
 
 		public ForecastFeature(
-			IStore store,
 			WeatherForecastService weatherForecastService
-		) : base(store) {
+		) {
 			this.weatherForecastService = weatherForecastService;
 		}
 
@@ -38,7 +36,7 @@ namespace Blazorify.Flux.Demo.State {
 					return new ForecastActions.GetForecastSuccess() {
 						Forecasts = forecasts,
 					};
-				} catch(Exception ex) {
+				} catch (Exception ex) {
 					return new ForecastActions.GetForecastFailure() {
 						Exception = ex,
 					};

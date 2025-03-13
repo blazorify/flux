@@ -46,13 +46,9 @@ namespace Blazorify.Flux.Core {
 				try {
 					var feature = ActivatorUtilities.CreateInstance(this.serviceProvider, featureType);
 
-					this.logger.LogDebug("Feature '{featureType}' has been discovered", featureType);
-
 					this.AddFeature((dynamic)feature);
-
-					this.logger.LogDebug("Feature '{featureType}' has been added", featureType);
 				} catch (Exception ex) {
-					this.logger.LogError(ex, ex.Message);
+					this.logger.LogError(ex, "Failed to initialize feature '{featureType}'", featureType);
 				}
 			}
 
@@ -72,8 +68,12 @@ namespace Blazorify.Flux.Core {
 				});
 			};
 
-			this.effects[typeof(TState)] = (action) => {
-				feature.Effect(action);
+			this.effects[typeof(TState)] = async (action) => {
+				var result = await feature.Effect(action);
+
+				if (result != null) {
+					this.Dispatch(result);
+				}
 			};
 		}
 
@@ -83,10 +83,6 @@ namespace Blazorify.Flux.Core {
 			}
 
 			return null;
-		}
-
-		public IDisposable Subscribe(Action callback) {
-			return this.Subscribe<State>(state => { callback(); });
 		}
 
 		public IDisposable Subscribe<TState>(Action<TState> callback) where TState : class, new() {

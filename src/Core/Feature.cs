@@ -6,8 +6,7 @@ using Blazorify.Flux.Interfaces;
 
 namespace Blazorify.Flux.Core {
 	public abstract class Feature<TState> : IFeature<TState> where TState : class, new() {
-		protected readonly IStore store;
-		private TState state = new();
+		private State<TState> state = new();
 
 		protected readonly Dictionary<Type, List<IReducer<TState>>> reducers = [];
 		protected readonly Dictionary<Type, List<Func<IAction, Task<IAction>>>> effects = [];
@@ -17,18 +16,14 @@ namespace Blazorify.Flux.Core {
 		}
 
 		public virtual TState State {
-			get => this.state;
+			get => this.state.Get();
 		}
 
 		public virtual IEnumerable<IReducer<TState>> Reducers {
 			get => this.reducers.SelectMany(m => m.Value);
 		}
 
-		protected Feature(
-			IStore store
-		) {
-			this.store = store;
-
+		protected Feature() {
 			this.ConfigureReducers(new((type, reducer) => {
 				if (!this.reducers.TryGetValue(type, out var reducers)) {
 					this.reducers.Add(type, reducers = []);
@@ -44,8 +39,6 @@ namespace Blazorify.Flux.Core {
 
 				effects.Add(effect);
 			}));
-
-			this.store.AddFeature(this);
 		}
 
 		protected abstract void ConfigureReducers(ReducerBuilder builder);
@@ -58,24 +51,24 @@ namespace Blazorify.Flux.Core {
 			}
 
 			foreach (var reducer in reducers) {
-				var state = reducer.Reduce(this.state, action);
+				var oldState = this.state.Get();
 
-				if (!ReferenceEquals(this.state, state)) {
-					callback(this.state = state);
+				if (this.state.ApplyChanges(reducer.Reduce(oldState, action), out TState newState)) {
+					callback(this.state.Set(newState));
 				}
 			}
 		}
 
-		public async Task Effect(IAction action) {
+		public async Task<IAction?> Effect(IAction action) {
 			if (!this.effects.TryGetValue(action.GetType(), out var effects)) {
-				return;
+				return null;
 			}
 
 			foreach (var effect in effects) {
-				var result = await effect.Invoke(action);
-
-				this.store.Dispatch(result);
+				return await effect.Invoke(action);
 			}
+
+			return null;
 		}
 
 		protected class ReducerBuilder {

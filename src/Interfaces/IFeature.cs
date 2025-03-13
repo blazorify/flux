@@ -8,14 +8,14 @@ namespace Blazorify.Flux.Interfaces {
 	/// </summary>
 	/// <typeparam name="TState">The type of state managed by this feature.</typeparam>
 	public interface IFeature<TState> where TState : class, new() {
-		public String Name { get; }
+		String Name { get; }
 
-		public TState State { get; }
+		TState State { get; }
 
-		public IEnumerable<IReducer<TState>> Reducers { get; }
+		IEnumerable<IReducer<TState>> Reducers { get; }
 
-		public void Reduce(IAction action, Action<TState> callback);
+		void Reduce(IAction action, Action<TState> callback);
 
-		public Task Effect(IAction action);
+		Task<IAction?> Effect(IAction action);
 	}
 }
