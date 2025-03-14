@@ -1,6 +1,7 @@
 @page "/blazor-counter"
 @implements IDisposable
-@inject Blazorify.Flux.Interfaces.IStore store
+@inject IStore store
+@inject IDispatcher dispatcher
 
 <PageTitle>Counter</PageTitle>
 
@@ -29,11 +30,11 @@
 	}
 
 	private void IncrementCount() {
-		this.store.Dispatch<CounterActions.Increment>();
+		this.dispatcher.Dispatch<CounterActions.Increment>();
 	}
 
 	private void DecrementCount() {
-		this.store.Dispatch<CounterActions.Decrement>();
+		this.dispatcher.Dispatch<CounterActions.Decrement>();
 	}
 
 	public void Dispose() {

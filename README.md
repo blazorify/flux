@@ -35,8 +35,13 @@ A feature manages a specific state slice and defines how it responds to actions.
 ```csharp
 public class CounterFeature : Feature<CounterState> {
 	protected override void ConfigureReducers(ReducerBuilder builder) {
-		builder.On<CounterActions.Increment>((state, action) => state with { CurrentCount = state.CurrentCount + 1 });
-		builder.On<CounterActions.Decrement>((state, action) => state with { CurrentCount = state.CurrentCount - 1 });
+		builder.On<CounterActions.Increment>((state, action) => state with { 
+			CurrentCount = state.CurrentCount + 1 
+		});
+
+		builder.On<CounterActions.Decrement>((state, action) => state with { 
+			CurrentCount = state.CurrentCount - 1 
+		});
 	}
 
 	protected override void ConfigureEffects(EffectBuilder builder) {
@@ -48,7 +53,7 @@ public class CounterFeature : Feature<CounterState> {
 ### 4. Initialize the Store
 Add the store initializer in `App.razor`:
 
-```razor
+```cshtml
 <Blazorify.Flux.Components.StoreInitializer />
 
 <Router AppAssembly="@typeof(App).Assembly">
@@ -59,9 +64,10 @@ Add the store initializer in `App.razor`:
 ### 5. Use the Store in a Component
 Inject `IStore` and subscribe to state changes.
 
-```razor
+```cshtml
 @implements IDisposable
 @inject Blazorify.Flux.Interfaces.IStore store
+@inject Blazorify.Flux.Interfaces.IDispatcher dispatcher
 
 <p role="status">Current count: @currentCount</p>
 
@@ -77,8 +83,8 @@ Inject `IStore` and subscribe to state changes.
 		this.subscription = this.store.Subscribe<CounterState>(state => this.currentCount = state.CurrentCount);
 	}
 
-	private void IncrementCount() => this.store.Dispatch<CounterActions.Increment>();
-	private void DecrementCount() => this.store.Dispatch<CounterActions.Decrement>();
+	private void IncrementCount() => this.dispatcher.Dispatch<CounterActions.Increment>();
+	private void DecrementCount() => this.dispatcher.Dispatch<CounterActions.Decrement>();
 
 	public void Dispose() => this.subscription?.Dispose();
 }
@@ -87,7 +93,7 @@ Inject `IStore` and subscribe to state changes.
 ### 6. Use `FluxComponent` for Simplicity
 Alternatively, inherit from `FluxComponent` for automatic subscription management.
 
-```razor
+```cshtml
 @inherits Blazorify.Flux.Components.FluxComponent
 
 <p role="status">Current count: @currentCount</p>

@@ -29,17 +29,17 @@ namespace Blazorify.Flux.Demo.State {
 		}
 
 		protected override void ConfigureEffects(EffectBuilder builder) {
-			builder.On<ForecastActions.GetForecast>(async action => {
+			builder.On<ForecastActions.GetForecast>(async (dispatcher, action) => {
 				try {
 					var forecasts = await this.weatherForecastService.GetForecastAsync(DateTime.Now);
 
-					return new ForecastActions.GetForecastSuccess() {
+					dispatcher.Dispatch(new ForecastActions.GetForecastSuccess() {
 						Forecasts = forecasts,
-					};
+					});
 				} catch (Exception ex) {
-					return new ForecastActions.GetForecastFailure() {
+					dispatcher.Dispatch(new ForecastActions.GetForecastFailure() {
 						Exception = ex,
-					};
+					});
 				}
 			});
 		}

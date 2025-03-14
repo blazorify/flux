@@ -1,5 +1,4 @@
 using System;
-using System.Collections.Concurrent;
 using System.Collections.Generic;
 using System.Linq;
 using Blazorify.Flux.Interfaces;
@@ -20,7 +19,6 @@ namespace Blazorify.Flux.Core {
 		private readonly Dictionary<Type, Action<IAction, Action<Object?>>> reducers = [];
 		private readonly Dictionary<Type, Action<IAction>> effects = [];
 
-		private readonly ConcurrentQueue<IAction> queuedActions = [];
 		private readonly Dictionary<Type, List<Delegate>> subscribers = [];
 
 		public Store(
@@ -69,11 +67,9 @@ namespace Blazorify.Flux.Core {
 			};
 
 			this.effects[typeof(TState)] = async (action) => {
-				var result = await feature.Effect(action);
+				var dispatcher = this.serviceProvider.GetRequiredService<IDispatcher>();
 
-				if (result != null) {
-					this.Dispatch(result);
-				}
+				await feature.Effect(dispatcher, action);
 			};
 		}
 
@@ -125,52 +121,16 @@ namespace Blazorify.Flux.Core {
 			}
 		}
 
-		public void Dispatch<TAction>() where TAction : IAction, new() {
-			this.Dispatch(new TAction());
-		}
-
-		public void Dispatch<TAction>(TAction action) where TAction : IAction {
-			this.Dispatch((IAction)action);
-		}
-
-		public void Dispatch<TAction>(Func<TAction> action) where TAction : IAction {
-			this.Dispatch(action.Invoke());
-		}
-
-		public void Dispatch<TAction>(Func<TAction, TAction> action) where TAction : IAction, new() {
-			this.Dispatch(action.Invoke(new TAction()));
-		}
-
-		public void Dispatch(IAction action) {
-			ArgumentNullException.ThrowIfNull(action);
-
-			lock (this.queuedActions) {
-				this.queuedActions.Enqueue(action);
+		void IStore.ProcessAction(IAction action) {
+			foreach (var (stateType, reduce) in this.reducers) {
+				reduce(action, (state) => {
+					this.NotifySubscribers(state!);
+				});
 			}
 
-			this.DispatchQueuedActions();
-		}
-
-		private void DispatchQueuedActions() {
-			do {
-				IAction? action;
-
-				lock (this.queuedActions) {
-					if (!this.queuedActions.TryDequeue(out action)) {
-						return;
-					}
-				}
-
-				foreach (var (stateType, reduce) in this.reducers) {
-					reduce(action, (state) => {
-						this.NotifySubscribers(state!);
-					});
-				}
-
-				foreach (var (stateType, effect) in this.effects) {
-					effect(action);
-				}
-			} while (true);
+			foreach (var (stateType, effect) in this.effects) {
+				effect(action);
+			}
 		}
 	}
 }

@@ -11,14 +11,6 @@ namespace Blazorify.Flux.Interfaces {
 
 		public IDisposable Subscribe<TState>(Action<TState> callback) where TState : class, new();
 
-		public void Dispatch<TAction>() where TAction : IAction, new();
-
-		public void Dispatch<TAction>(TAction action) where TAction : IAction;
-
-		public void Dispatch<TAction>(Func<TAction> action) where TAction : IAction;
-
-		public void Dispatch<TAction>(Func<TAction, TAction> action) where TAction : IAction, new();
-
-		public void Dispatch(IAction action);
+		internal void ProcessAction(IAction action);
 	}
 }

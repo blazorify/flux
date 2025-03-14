@@ -9,7 +9,7 @@ namespace Blazorify.Flux.Core {
 		private State<TState> state = new();
 
 		protected readonly Dictionary<Type, List<IReducer<TState>>> reducers = [];
-		protected readonly Dictionary<Type, List<Func<IAction, Task<IAction>>>> effects = [];
+		protected readonly Dictionary<Type, List<Func<IDispatcher, IAction, Task>>> effects = [];
 
 		public virtual String Name {
 			get => this.GetType().Name;
@@ -54,21 +54,19 @@ namespace Blazorify.Flux.Core {
 				var oldState = this.state.Get();
 
 				if (this.state.ApplyChanges(reducer.Reduce(oldState, action), out TState newState)) {
-					callback(this.state.Set(newState));
+					callback(newState);
 				}
 			}
 		}
 
-		public async Task<IAction?> Effect(IAction action) {
+		public async Task Effect(IDispatcher dispatcher, IAction action) {
 			if (!this.effects.TryGetValue(action.GetType(), out var effects)) {
-				return null;
+				return;
 			}
 
 			foreach (var effect in effects) {
-				return await effect.Invoke(action);
+				await effect.Invoke(dispatcher, action);
 			}
-
-			return null;
 		}
 
 		protected class ReducerBuilder {
@@ -86,18 +84,22 @@ namespace Blazorify.Flux.Core {
 		}
 
 		protected class EffectBuilder {
-			private readonly Action<Type, Func<IAction, Task<IAction>>> register;
+			private readonly Action<Type, Func<IDispatcher, IAction, Task>> register;
 
-			public EffectBuilder(Action<Type, Func<IAction, Task<IAction>>> register) {
+			public EffectBuilder(Action<Type, Func<IDispatcher, IAction, Task>> register) {
 				this.register = register;
 			}
 
-			public EffectBuilder On<TAction>(Func<TAction, IAction> effect) where TAction : IAction {
-				return this.On<TAction>(action => Task.FromResult(effect(action)));
+			public EffectBuilder On<TAction>(Action<IDispatcher, TAction> effect) where TAction : IAction {
+				return this.On<TAction>((dispatcher, action) => {
+					effect(dispatcher, action);
+
+					return Task.CompletedTask;
+				});
 			}
 
-			public EffectBuilder On<TAction>(Func<TAction, Task<IAction>> effect) where TAction : IAction {
-				this.register.Invoke(typeof(TAction), action => effect((TAction)action));
+			public EffectBuilder On<TAction>(Func<IDispatcher, TAction, Task> effect) where TAction : IAction {
+				this.register.Invoke(typeof(TAction), (dispatcher, action) => effect(dispatcher, (TAction)action));
 
 				return this;
 			}

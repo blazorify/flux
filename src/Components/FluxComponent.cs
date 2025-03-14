@@ -13,6 +13,9 @@ namespace Blazorify.Flux.Components {
 		private IStore store { get; set; } = default!;
 
 		[Inject]
+		private IDispatcher dispatcher { get; set; } = default!;
+
+		[Inject]
 		private ILogger<FluxComponent> logger { get; set; } = default!;
 
 		protected void Subscribe<TState>(Action<TState> callback) where TState : class, new() {
@@ -54,7 +57,7 @@ namespace Blazorify.Flux.Components {
 		protected void Dispatch(IAction action) {
 			this.logger.LogDebug("[{actionType}] Dispatching action", typeof(IAction));
 
-			this.store.Dispatch(action);
+			this.dispatcher.Dispatch(action);
 
 			this.logger.LogDebug("[{actionType}] Action has been dispatched", typeof(IAction));
 		}

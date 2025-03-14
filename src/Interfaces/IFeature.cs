@@ -16,6 +16,6 @@ namespace Blazorify.Flux.Interfaces {
 
 		void Reduce(IAction action, Action<TState> callback);
 
-		Task<IAction?> Effect(IAction action);
+		Task Effect(IDispatcher dispatcher, IAction action);
 	}
 }
