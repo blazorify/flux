@@ -17,6 +17,7 @@ namespace Blazorify.Flux.Components {
 		protected override void OnInitialized() {
 			base.OnInitialized();
 
+			this.logger.LogDebug("Initializing store...");
 			this.store.Initialize();
 		}
 	}

@@ -40,11 +40,16 @@ namespace Blazorify.Flux.Core {
 				.SelectMany(assembly => assembly.GetTypes())
 				.Where(type => type.BaseType is { IsGenericType: true } && type.BaseType.GetGenericTypeDefinition() == typeof(Feature<>));
 
+			this.logger.LogDebug("Discovered {count} features: {features}", featureTypes.Count(), String.Join(";", featureTypes.Select(m => m.Name)));
+
 			foreach (var featureType in featureTypes) {
 				try {
+					this.logger.LogDebug("Instantiating feature: {featureType}", featureType);
 					var feature = ActivatorUtilities.CreateInstance(this.serviceProvider, featureType);
 
+					this.logger.LogDebug("Registering feature: {featureType}", featureType);
 					this.AddFeature((dynamic)feature);
+					this.logger.LogDebug("Registered feature: {featureType}", featureType);
 				} catch (Exception ex) {
 					this.logger.LogError(ex, "Failed to initialize feature '{featureType}'", featureType);
 				}
@@ -56,16 +61,20 @@ namespace Blazorify.Flux.Core {
 		public void AddFeature<TState>(IFeature<TState> feature) where TState : class, new() {
 			ArgumentNullException.ThrowIfNull(feature);
 
+			this.logger.LogDebug("Add feature: {featureType}", typeof(TState));
 			if (!this.features.TryAdd(typeof(TState), feature)) {
+				this.logger.LogDebug("Failed to add feature: {featureType}", typeof(TState));
 				return;
 			}
 
+			this.logger.LogDebug("Registering {featureType} feature reducers", typeof(TState));
 			this.reducers[typeof(TState)] = (action, callback) => {
 				feature.Reduce(action, (state) => {
 					this.NotifySubscribers(state);
 				});
 			};
 
+			this.logger.LogDebug("Registering {featureType} feature effects", typeof(TState));
 			this.effects[typeof(TState)] = async (action) => {
 				var dispatcher = this.serviceProvider.GetRequiredService<IDispatcher>();
 
