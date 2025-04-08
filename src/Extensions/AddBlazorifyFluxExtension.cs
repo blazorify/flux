@@ -16,8 +16,7 @@ namespace Microsoft.Extensions.DependencyInjection {
 			services.AddSingleton<IStore, Store>();
 			services.AddSingleton<IDispatcher, Dispatcher>();
 
-			var options = new BlazorifyFluxOptions();
-			configure.Invoke(options);
+			services.Configure(configure);
 
 			return services;
 		}
