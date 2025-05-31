@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.Linq;
+using System.Threading;
 using Blazorify.Flux.Interfaces;
 using Blazorify.Flux.Options;
 using Microsoft.Extensions.DependencyInjection;
@@ -15,6 +16,7 @@ namespace Blazorify.Flux.Core {
 
 		private Boolean isInitialized = false;
 
+		private readonly SynchronizationContext? syncContext;
 		private readonly Dictionary<Type, Object> features = [];
 		private readonly Dictionary<Type, Action<IAction, Action<Object?>>> reducers = [];
 		private readonly Dictionary<Type, Action<IAction>> effects = [];
@@ -29,6 +31,14 @@ namespace Blazorify.Flux.Core {
 			this.optionsAccessor = optionsAccessor;
 			this.serviceProvider = serviceProvider;
 			this.logger = logger;
+
+			this.syncContext = SynchronizationContext.Current;
+
+			if (this.syncContext != null) {
+				this.logger.LogDebug("Captured SynchronizationContext: {SyncContextType}", this.syncContext.GetType().FullName);
+			} else {
+				this.logger.LogDebug("No SynchronizationContext captured (null)");
+			}
 		}
 
 		public void Initialize() {
@@ -124,8 +134,16 @@ namespace Blazorify.Flux.Core {
 			lock (this.subscribers) {
 				if (this.subscribers.TryGetValue(stateType, out var subscribers)) {
 					foreach (var subscriber in subscribers.Cast<Action<TState>>()) {
-						subscriber(state);
+						if (this.syncContext != null) {
+							this.logger.LogDebug("Notifying subscriber for '{StateType}' via SynchronizationContext.", stateType.FullName);
+							this.syncContext.Post(_ => subscriber(state), null);
+						} else {
+							this.logger.LogDebug("Notifying subscriber for '{StateType}' directly (no SynchronizationContext).", stateType.FullName);
+							subscriber(state);
+						}
 					}
+				} else {
+					this.logger.LogDebug("No subscribers found for '{StateType}'.", stateType.FullName);
 				}
 			}
 		}
