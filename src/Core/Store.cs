@@ -133,7 +133,7 @@ namespace Blazorify.Flux.Core {
 
 			lock (this.subscribers) {
 				if (this.subscribers.TryGetValue(stateType, out var subscribers)) {
-					foreach (var subscriber in subscribers.Cast<Action<TState>>()) {
+					foreach (var subscriber in subscribers.ToList().Cast<Action<TState>>()) {
 						if (this.syncContext != null) {
 							this.logger.LogDebug("Notifying subscriber for '{StateType}' via SynchronizationContext.", stateType.FullName);
 							this.syncContext.Post(_ => subscriber(state), null);
