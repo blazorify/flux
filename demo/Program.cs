@@ -1,4 +1,5 @@
 using Blazorify.Flux.Demo.Data;
+using Blazorify.Flux.Demo.Workers;
 using Microsoft.AspNetCore.Builder;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
@@ -11,8 +12,8 @@ namespace Blazorify.Flux.Demo {
 			// Add services to the container.
 			builder.Services.AddRazorPages();
 			builder.Services.AddServerSideBlazor();
-			builder.Services.AddSingleton<WeatherForecastService>();
 
+			builder.Services.AddDemo();
 			builder.Services.AddBlazorifyFlux();
 
 			var app = builder.Build();
@@ -32,6 +33,8 @@ namespace Blazorify.Flux.Demo {
 
 			app.MapBlazorHub();
 			app.MapFallbackToPage("/_Host");
+
+			app.UseDemo();
 
 			app.Run();
 		}
