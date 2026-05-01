@@ -17,7 +17,6 @@ namespace Blazorify.Flux.Core {
 
 		private Boolean isInitialized = false;
 
-		private readonly SynchronizationContext? syncContext;
 		private readonly Dictionary<Type, Object> features = [];
 		private readonly Dictionary<Type, Action<IAction, Action<Object?>>> reducers = [];
 		private readonly Dictionary<Type, Action<IAction>> effects = [];
@@ -32,14 +31,6 @@ namespace Blazorify.Flux.Core {
 			this.optionsAccessor = optionsAccessor;
 			this.serviceProvider = serviceProvider;
 			this.logger = logger;
-
-			this.syncContext = SynchronizationContext.Current;
-
-			if (this.syncContext != null) {
-				this.logger.LogDebug("Captured SynchronizationContext: {SyncContextType}", this.syncContext.GetType().FullName);
-			} else {
-				this.logger.LogDebug("No SynchronizationContext captured (null)");
-			}
 		}
 
 		public void Initialize() {
@@ -146,14 +137,17 @@ namespace Blazorify.Flux.Core {
 		private void NotifySubscribers<TState>(TState state) where TState : class {
 			var stateType = typeof(TState);
 
+			// Read the ambient context once per call, before the lock — it's a thread-local read.
+			var current = SynchronizationContext.Current;
+
 			lock (this.subscribers) {
 				if (this.subscribers.TryGetValue(stateType, out var subscribers)) {
 					foreach (var @delegate in subscribers) {
 						var subscriber = (Action<TState>)@delegate;
 
-						if (this.syncContext != null) {
+						if (current != null) {
 							this.logger.LogDebug("Notifying subscriber for '{StateType}' via SynchronizationContext.", stateType.FullName);
-							this.syncContext.Post(_ => subscriber(state), null);
+							current.Post(_ => subscriber(state), null);
 						} else {
 							this.logger.LogDebug("Notifying subscriber for '{StateType}' directly (no SynchronizationContext).", stateType.FullName);
 							subscriber(state);
