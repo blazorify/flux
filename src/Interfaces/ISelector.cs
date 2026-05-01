@@ -6,5 +6,7 @@ namespace Blazorify.Flux.Interfaces {
 	/// <typeparam name="TResult">The type of the selected result.</typeparam>
 	public interface ISelector<TState, TResult> {
 		TResult Select(TState state);
+		TResult LastResult { get; }
+		void Reset();
 	}
 }

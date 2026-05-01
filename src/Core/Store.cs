@@ -134,6 +134,30 @@ namespace Blazorify.Flux.Core {
 			return subscription;
 		}
 
+		public ISelector<TState, TResult> Select<TState, TResult>(Func<TState, TResult> projector)
+			where TState : class, new() {
+			return this.Select(projector, ReferenceEqualityComparer.Instance, EqualityComparer<TResult>.Default);
+		}
+
+		public ISelector<TState, TResult> Select<TState, TResult>(
+			Func<TState, TResult> projector,
+			IEqualityComparer<TState> inputComparer
+		) where TState : class, new() {
+			return this.Select(projector, inputComparer, EqualityComparer<TResult>.Default);
+		}
+
+		public ISelector<TState, TResult> Select<TState, TResult>(
+			Func<TState, TResult> projector,
+			IEqualityComparer<TState> inputComparer,
+			IEqualityComparer<TResult> outputComparer
+		) where TState : class, new() {
+			ArgumentNullException.ThrowIfNull(projector);
+			ArgumentNullException.ThrowIfNull(inputComparer);
+			ArgumentNullException.ThrowIfNull(outputComparer);
+
+			return new MemoizedSelector<TState, TResult>(projector, inputComparer, outputComparer);
+		}
+
 		private void NotifySubscribers<TState>(TState state) where TState : class {
 			var stateType = typeof(TState);
 

@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 
 namespace Blazorify.Flux.Interfaces {
 	/// <summary>
@@ -12,6 +13,21 @@ namespace Blazorify.Flux.Interfaces {
 		public IFeature<TState>? GetFeature<TState>() where TState : class, new();
 
 		public IDisposable Subscribe<TState>(Action<TState> callback) where TState : class, new();
+
+		public ISelector<TState, TResult> Select<TState, TResult>(
+			Func<TState, TResult> projector
+		) where TState : class, new();
+
+		public ISelector<TState, TResult> Select<TState, TResult>(
+			Func<TState, TResult> projector,
+			IEqualityComparer<TState> inputComparer
+		) where TState : class, new();
+
+		public ISelector<TState, TResult> Select<TState, TResult>(
+			Func<TState, TResult> projector,
+			IEqualityComparer<TState> inputComparer,
+			IEqualityComparer<TResult> outputComparer
+		) where TState : class, new();
 
 		internal void ProcessAction(IAction action);
 	}
