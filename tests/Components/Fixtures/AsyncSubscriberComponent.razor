@@ -1,0 +1,30 @@
+@inherits FluxComponent
+
+<div data-testid="counter">@LastObservedCounter</div>
+<div data-testid="callbacks">@CallbackCount</div>
+
+@code {
+	[Parameter] public bool ThrowOnCallback { get; set; }
+	[Parameter] public TimeSpan? CallbackDelay { get; set; }
+
+	public int LastObservedCounter { get; private set; } = -1;
+	public int CallbackCount { get; private set; }
+
+	protected override void OnInitialized()
+	{
+		base.OnInitialized();
+		this.Subscribe<ComponentTestState>(async state =>
+		{
+			if (this.CallbackDelay is { } delay)
+			{
+				await Task.Delay(delay);
+			}
+			this.CallbackCount++;
+			this.LastObservedCounter = state.Counter;
+			if (this.ThrowOnCallback)
+			{
+				throw new InvalidOperationException("Test async callback failure");
+			}
+		});
+	}
+}

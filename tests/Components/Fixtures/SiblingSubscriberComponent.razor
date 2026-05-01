@@ -1,0 +1,18 @@
+@inherits FluxComponent
+
+<div data-testid="@Label-counter">@LastObservedCounter</div>
+
+@code {
+	[Parameter] public string Label { get; set; } = "sibling";
+
+	public int LastObservedCounter { get; private set; } = -1;
+
+	protected override void OnInitialized()
+	{
+		base.OnInitialized();
+		this.Subscribe<ComponentTestState>(state =>
+		{
+			this.LastObservedCounter = state.Counter;
+		});
+	}
+}
