@@ -22,7 +22,10 @@ public static class TestServices {
 			NullLogger<Store>.Instance
 		));
 
-		services.AddSingleton<IDispatcher>(sp => new Dispatcher(sp.GetRequiredService<IStore>()));
+		services.AddSingleton<IDispatcher>(sp => new Dispatcher(
+			sp.GetRequiredService<IStore>(),
+			NullLogger<Dispatcher>.Instance
+		));
 
 		var provider = services.BuildServiceProvider();
 		store = (Store)provider.GetRequiredService<IStore>();

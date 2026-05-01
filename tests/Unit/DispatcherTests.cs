@@ -126,4 +126,17 @@ public class DispatcherTests {
 
 		Assert.Equal(100, store.GetFeature<TestState>()!.State.Counter);
 	}
+
+	// === Error recovery ===
+
+	[Fact]
+	public void Dispatch_WhenReducerThrows_ContinuesProcessingRemainingActions() {
+		var store = BuildStoreWithDispatcher(out var dispatcher);
+
+		dispatcher.Dispatch(new TestActions.Increment());
+		dispatcher.Dispatch(new TestActions.Throw());
+		dispatcher.Dispatch(new TestActions.Increment());
+
+		Assert.Equal(2, store.GetFeature<TestState>()!.State.Counter);
+	}
 }

@@ -19,6 +19,10 @@ public class TestFeature : Feature<TestState> {
 		builder.On<TestActions.SetName>((state, action) => state with {
 			Name = action.Value,
 		});
+
+		builder.On<TestActions.Throw>((state, _) => {
+			throw new InvalidOperationException("Test reducer failure");
+		});
 	}
 
 	protected override void ConfigureEffects(EffectBuilder builder) {

@@ -1,17 +1,21 @@
 using System;
 using System.Collections.Concurrent;
 using Blazorify.Flux.Interfaces;
+using Microsoft.Extensions.Logging;
 
 namespace Blazorify.Flux.Core {
 	public class Dispatcher : IDispatcher {
 		private readonly IStore store;
+		private readonly ILogger<Dispatcher> logger;
 
 		private readonly ConcurrentQueue<IAction> queuedActions = [];
 
 		public Dispatcher(
-			IStore store
+			IStore store,
+			ILogger<Dispatcher> logger
 		) {
 			this.store = store;
+			this.logger = logger;
 		}
 
 		private void DispatchQueuedActions() {
@@ -24,7 +28,11 @@ namespace Blazorify.Flux.Core {
 					}
 				}
 
-				this.store.ProcessAction(action);
+				try {
+					this.store.ProcessAction(action);
+				} catch (Exception ex) {
+					this.logger.LogError(ex, "Failed to process action {actionType}", action.GetType());
+				}
 			} while (true);
 		}
 
