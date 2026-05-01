@@ -5,7 +5,8 @@ using Xunit;
 namespace Blazorify.Flux.Tests.Unit;
 
 public class SubscriptionTests {
-	// Clear SyncContext so dispatch fires reducers synchronously (see StoreTests for rationale).
+	// xUnit's SyncContext would make Store post notifications to a deferred queue;
+	// clear it so callbacks fire inline and synchronous asserts can see them.
 	private static void ClearSyncContext() =>
 		SynchronizationContext.SetSynchronizationContext(null);
 
@@ -22,7 +23,7 @@ public class SubscriptionTests {
 
 	[Fact]
 	public void Dispose_WhenCalledTwice_UnsubscribesOnlyOnce() {
-		// Subscription.cs:13-16 — `disposed` bool flag short-circuits the second call.
+		// Dispose must be idempotent — a second call must not run the unsubscribe action again.
 		var unsubscribeCount = 0;
 		var sub = new Subscription(() => unsubscribeCount++);
 
@@ -36,9 +37,8 @@ public class SubscriptionTests {
 
 	[Fact]
 	public void Dispose_WhenCalled_RemovesSubscriberFromStore() {
-		// Subscribe registers a delegate; Dispose runs the unsubscribe Action which
-		// removes the delegate from Store.subscribers (Store.cs:116-120). Subsequent
-		// dispatches must NOT invoke the original callback.
+		// Disposing the subscription must remove the callback from the Store so
+		// subsequent dispatches do not invoke it.
 		ClearSyncContext();
 		TestServices.BuildWithStore(out var store, out var dispatcher);
 		store.AddFeature<TestState>(new TestFeature());

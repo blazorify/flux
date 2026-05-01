@@ -13,7 +13,6 @@ public class FeatureTests {
 	public void ConfigureReducers_WhenReducerRegistered_IsInReducersCollection() {
 		var feature = new TestFeature();
 
-		// TestFeature registers 4 reducers (Increment, Decrement, IncrementBy, SetName).
 		Assert.NotEmpty(feature.Reducers);
 	}
 
@@ -32,7 +31,6 @@ public class FeatureTests {
 
 	[Fact]
 	public void Reduce_WhenNoMatchingAction_DoesNotInvokeCallback() {
-		// TestFeature has no reducer for `Unregistered` — Feature.cs:49 returns early.
 		var feature = new TestFeature();
 		var received = new List<TestState>();
 
@@ -43,8 +41,8 @@ public class FeatureTests {
 
 	[Fact]
 	public void Reduce_WhenStateUnchanged_DoesNotInvokeCallback() {
-		// Default Name == string.Empty. SetName("") produces identical state — ApplyChanges
-		// returns false (State.cs:23 ValueComparer.Equals), so callback is NOT invoked.
+		// SetName("") on a default state produces identical values; the callback
+		// must NOT fire when ApplyChanges detects no change.
 		var feature = new TestFeature();
 		var received = new List<TestState>();
 
@@ -55,7 +53,6 @@ public class FeatureTests {
 
 	[Fact]
 	public void Reduce_WhenReducerProducesNewState_StatePropertyIsUpdated() {
-		// Covers D-31 string property of TestState.
 		var feature = new TestFeature();
 
 		feature.Reduce(new TestActions.SetName("foo"), _ => { });
@@ -65,16 +62,15 @@ public class FeatureTests {
 
 	[Fact]
 	public void Reduce_WhenMultipleReducersForAction_AllRun() {
-		// Two On<Increment> registrations both run. First adds 1, second adds 10.
-		// Feature.cs:53 foreach reducer applies them sequentially; callback fires
-		// after each ApplyChanges that detects a change.
+		// Two On<Increment> registrations must both run sequentially, with the callback
+		// firing after each one that produces a change. First adds 1, second adds 10.
 		var feature = new MultiReducerFeature();
 		var received = new List<TestState>();
 
 		feature.Reduce(new TestActions.Increment(), state => received.Add(state));
 
-		Assert.Equal(2, received.Count);          // both reducers ran and produced changes
-		Assert.Equal(11, feature.State.Counter);  // 0 + 1 + 10 = 11
+		Assert.Equal(2, received.Count);
+		Assert.Equal(11, feature.State.Counter);
 	}
 
 	// === Name ===
@@ -90,19 +86,16 @@ public class FeatureTests {
 
 	[Fact]
 	public async Task Effect_WhenNoMatchingAction_DoesNotThrow() {
-		// TestFeature has no effect for Unregistered — Feature.cs:63 returns early.
 		var feature = new TestFeature();
 		var mockDispatcher = new Mock<IDispatcher>();
 
 		await feature.Effect(mockDispatcher.Object, new TestActions.Unregistered());
-		// reaching here = no exception thrown
 	}
 
 	[Fact]
 	public async Task Effect_WhenMatchingAction_InvokesEffect() {
-		// TestFeature's Throw effect throws InvalidOperationException.
-		// EffectBuilder.On<TAction>(Action<...>) wraps in Task.CompletedTask, so the throw
-		// surfaces as a faulted Task — Assert.ThrowsAsync handles this cleanly.
+		// The synchronous `Action`-based effect overload wraps in Task.CompletedTask,
+		// so a throw surfaces as a faulted Task and ThrowsAsync sees it.
 		var feature = new TestFeature();
 		var mockDispatcher = new Mock<IDispatcher>();
 
@@ -113,8 +106,8 @@ public class FeatureTests {
 
 	[Fact]
 	public async Task Effect_WhenAsyncEffectDispatchesFollowUp_AwaitsCompletion() {
-		// Verifies Feature.Effect awaits the effect lambda (Feature.cs:67-69 foreach + await).
-		// AsyncEffectFeature dispatches Decrement from inside its effect after Task.Yield.
+		// Effect must await the effect lambda — fire-and-forget would let the post-Yield
+		// dispatch run after the test asserts and miss the Decrement.
 		var feature = new AsyncEffectFeature();
 		var mockDispatcher = new Mock<IDispatcher>();
 
@@ -146,10 +139,8 @@ public class FeatureTests {
 		protected override void ConfigureReducers(ReducerBuilder builder) { }
 
 		protected override void ConfigureEffects(EffectBuilder builder) {
-			// Async effect that dispatches a follow-up action.
-			// Tests that Feature.Effect awaits the Task returned from the lambda.
 			builder.On<TestActions.Increment>(async (dispatcher, _) => {
-				await Task.Yield();   // forces async state machine; not fire-and-forget
+				await Task.Yield();   // forces a real async hop so the test catches missing await
 				dispatcher.Dispatch(new TestActions.Decrement());
 			});
 		}
