@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.Linq;
+using System.Reflection;
 using System.Threading;
 using Blazorify.Flux.Interfaces;
 using Blazorify.Flux.Options;
@@ -52,15 +53,23 @@ namespace Blazorify.Flux.Core {
 
 			this.logger.LogDebug("Discovered {count} features: {features}", featureTypes.Count(), String.Join(";", featureTypes.Select(m => m.Name)));
 
+			// Reflect once outside the loop, close + invoke per feature
+			var addFeatureOpenGeneric = typeof(Store)
+				.GetMethod(nameof(this.AddFeature), BindingFlags.Instance | BindingFlags.Public)!;
+
 			foreach (var featureType in featureTypes) {
 				try {
 					this.logger.LogDebug("Instantiating feature: {featureType}", featureType);
 					var feature = ActivatorUtilities.CreateInstance(this.serviceProvider, featureType);
 
+					var stateType = featureType.BaseType!.GetGenericArguments()[0];
+					var addFeatureClosedGeneric = addFeatureOpenGeneric.MakeGenericMethod(stateType);
+
 					this.logger.LogDebug("Registering feature: {featureType}", featureType);
-					this.AddFeature((dynamic)feature);
+					addFeatureClosedGeneric.Invoke(this, [feature]);
 					this.logger.LogDebug("Registered feature: {featureType}", featureType);
 				} catch (Exception ex) {
+					// Catches throws from CreateInstance / MakeGenericMethod AND TargetInvocationException from Invoke.
 					this.logger.LogError(ex, "Failed to initialize feature '{featureType}'", featureType);
 				}
 			}
@@ -113,9 +122,15 @@ namespace Blazorify.Flux.Core {
 				subscribers.Add(callback);
 			}
 
+			// Dispose-time pruning of empty subscriber lists
 			var subscription = new Subscription(() => {
 				lock (this.subscribers) {
-					this.subscribers[stateType].Remove(callback);
+					if (this.subscribers.TryGetValue(stateType, out var list)) {
+						list.Remove(callback);
+						if (list.Count == 0) {
+							this.subscribers.Remove(stateType);
+						}
+					}
 				}
 			});
 
@@ -133,7 +148,9 @@ namespace Blazorify.Flux.Core {
 
 			lock (this.subscribers) {
 				if (this.subscribers.TryGetValue(stateType, out var subscribers)) {
-					foreach (var subscriber in subscribers.ToList().Cast<Action<TState>>()) {
+					foreach (var @delegate in subscribers) {
+						var subscriber = (Action<TState>)@delegate;
+
 						if (this.syncContext != null) {
 							this.logger.LogDebug("Notifying subscriber for '{StateType}' via SynchronizationContext.", stateType.FullName);
 							this.syncContext.Post(_ => subscriber(state), null);
@@ -145,6 +162,18 @@ namespace Blazorify.Flux.Core {
 				} else {
 					this.logger.LogDebug("No subscribers found for '{StateType}'.", stateType.FullName);
 				}
+			}
+		}
+
+		internal Int32 SubscriberCount(Type stateType) {
+			lock (this.subscribers) {
+				return this.subscribers.TryGetValue(stateType, out var list) ? list.Count : 0;
+			}
+		}
+
+		internal Boolean HasSubscriberEntry(Type stateType) {
+			lock (this.subscribers) {
+				return this.subscribers.ContainsKey(stateType);
 			}
 		}
 
