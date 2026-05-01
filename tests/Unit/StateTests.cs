@@ -54,7 +54,6 @@ public class StateTests {
 
 	[Fact]
 	public void ApplyChanges_WhenNoPropertyChanged_ReturnsFalse() {
-		// Default state Counter=0, Name="". Apply identical state — no property differs.
 		var state = new State<TestState>();
 
 		var changed = state.ApplyChanges(new TestState { Counter = 0, Name = string.Empty }, out _);
@@ -64,7 +63,6 @@ public class StateTests {
 
 	[Fact]
 	public void ApplyChanges_WhenOnePropertyChanges_UpdatesOnlyThatProperty() {
-		// Property-level change detection: only Counter changes; Name stays equal.
 		var state = new State<TestState>(new TestState { Counter = 5, Name = "hello" });
 
 		var changed = state.ApplyChanges(new TestState { Counter = 10, Name = "hello" }, out var newState);
@@ -86,7 +84,6 @@ public class StateTests {
 
 	[Fact]
 	public void Get_AfterApplyChanges_ReflectsLatestState() {
-		// D-25a: assert value equality, NOT reference equality.
 		var state = new State<TestState>();
 
 		state.ApplyChanges(new TestState { Counter = 5 }, out _);
@@ -98,8 +95,8 @@ public class StateTests {
 
 	[Fact]
 	public void GetSlice_WhenInvalidExpression_ThrowsInvalidOperationException() {
-		// State.cs:49-51 — selector body must be a MemberExpression. A `new NestedSubState()`
-		// expression body is a NewExpression, not a MemberExpression — triggers the throw.
+		// Selector body must be a MemberExpression; `new NestedSubState()` is a
+		// NewExpression and triggers the throw.
 		var state = new State<NestedState>();
 
 		Assert.Throws<InvalidOperationException>(
@@ -118,11 +115,8 @@ public class StateTests {
 
 	[Fact]
 	public void GetSlice_WhenSliceValueIsNull_ThrowsInvalidOperationException() {
-		// State.cs:53 — `value is not TSlice typedValue` triggers when the dictionary
-		// holds null for the slice. NullableSubState.Sub is typed non-nullable but
-		// initialized to `default!` so the dictionary entry is null at runtime.
-		// The selector is therefore Func<NullableSubState, NestedSubState> cleanly,
-		// no null-forgiving needed at the lambda site.
+		// Get<> throws when the underlying property is null at runtime
+		// (NullableSubState.Sub is non-nullable but initialized to default!).
 		var state = new State<NullableSubState>(new NullableSubState());
 
 		Assert.Throws<InvalidOperationException>(
@@ -134,18 +128,57 @@ public class StateTests {
 
 	[Fact]
 	public void Immutability_AfterApplyChangesAndGet_ReflectsLatestValue() {
-		// Records with init-only properties are immutable. Verify the State<TState>
-		// internal ImmutableDictionary was updated by ApplyChanges, not just a returned
-		// reference. Caller cannot mutate state externally and affect future Get() calls.
+		// Verify ApplyChanges swaps internal state (Get returns 99) without mutating
+		// references already held by callers (firstGet stays at 0).
 		var state = new State<TestState>();
 		var firstGet = state.Get();
-		Assert.Equal(0, firstGet.Counter);   // baseline
+		Assert.Equal(0, firstGet.Counter);
 
 		state.ApplyChanges(new TestState { Counter = 99 }, out _);
 
-		// Second Get reflects the new value — proves the dictionary was updated.
 		Assert.Equal(99, state.Get().Counter);
-		Assert.Equal(0, firstGet.Counter);   // firstGet unchanged (record immutability)
+		Assert.Equal(0, firstGet.Counter);
+	}
+
+	[Fact]
+	public void Get_CalledTwice_ReturnsSameReference() {
+		// Get() returns the cached reference between dispatches; no per-call allocation.
+		var state = new State<TestState>();
+
+		var first = state.Get();
+		var second = state.Get();
+
+		Assert.Same(first, second);
+	}
+
+	[Fact]
+	public void Get_AfterApplyChanges_ReturnsNewReference() {
+		// ApplyChanges must rebuild the cached reference; the prior one stays valid (record immutability).
+		var state = new State<TestState>();
+		var first = state.Get();
+
+		state.ApplyChanges(new TestState { Counter = 1 }, out _);
+		var second = state.Get();
+
+		Assert.NotSame(first, second);
+		Assert.Equal(1, second.Counter);
+		Assert.Equal(0, first.Counter);
+	}
+
+	[Fact]
+	public void ApplyChanges_UnderParallelFor_NoUpdatesLost() {
+		// ApplyChanges' read-modify-write must be atomic — without syncRoot, two
+		// threads racing foreach + SetItem corrupt state or throw.
+		var state = new State<TestState>();
+
+		var ex = Record.Exception(() =>
+			Parallel.For(0, 100, i =>
+				state.ApplyChanges(new TestState { Counter = i }, out _)
+			)
+		);
+
+		Assert.Null(ex);
+		Assert.InRange(state.Get().Counter, 0, 99);
 	}
 
 	// === Inline fixtures (private nested) ===
@@ -159,10 +192,8 @@ public class StateTests {
 	}
 
 	private record NullableSubState {
-		// Type-wise non-nullable so `Get<NestedSubState>(s => s.Sub)` infers
-		// Func<NullableSubState, NestedSubState> without null-forgiving on the
-		// lambda body. Runtime value is null via `default!` so the State<T>
-		// dictionary stores null for "Sub" — exercises the State.cs:53 null path.
+		// Declared non-nullable for clean inference of `Get<NestedSubState>(s => s.Sub)`;
+		// `default!` makes it null at runtime to exercise State's null-property path.
 		public NestedSubState Sub { get; init; } = default!;
 	}
 }

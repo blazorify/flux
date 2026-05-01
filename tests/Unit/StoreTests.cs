@@ -8,10 +8,9 @@ namespace Blazorify.Flux.Tests.Unit;
 public class StoreTests {
 	// === Helpers ===
 
-	// Clear SynchronizationContext on this thread BEFORE constructing Store so that
-	// Store.NotifySubscribers fires subscriber callbacks synchronously (Store.cs:131-149).
-	// xUnit may set its own SyncContext on the test thread; if Store captured it, dispatch
-	// callbacks would be Post'd to a deferred queue and not visible to synchronous asserts.
+	// xUnit may set a SyncContext on the test thread; Store captures it on
+	// construction and would Post notifications to a deferred queue, breaking
+	// synchronous asserts. Clear it first so callbacks fire inline.
 	private static void ClearSyncContext() =>
 		SynchronizationContext.SetSynchronizationContext(null);
 
@@ -71,7 +70,7 @@ public class StoreTests {
 		Assert.Null(store.GetFeature<TestState>());
 	}
 
-	// === Subscribe (D-30 replay contract) ===
+	// === Subscribe (replay contract) ===
 
 	[Fact]
 	public void Subscribe_WhenFeatureRegistered_FiresCallbackImmediately() {
@@ -178,8 +177,8 @@ public class StoreTests {
 
 	[Fact]
 	public void Initialize_WhenFeatureFails_ContinuesToNextFeature() {
-		// FailingFeature's constructor throws — exercises Store.cs:63 catch block.
-		// TestFeature is in the same assembly and must still register.
+		// One feature's constructor throwing must not prevent sibling features
+		// in the same assembly from registering.
 		var sp = TestServices.BuildEmpty();
 		var store = new Store(
 			TestServices.Options(typeof(TestFeature).Assembly),
@@ -195,7 +194,6 @@ public class StoreTests {
 
 	[Fact]
 	public void Initialize_WhenCalledTwice_IsIdempotent() {
-		// Per Store.cs:45-47: second Initialize is a no-op when isInitialized == true.
 		var sp = TestServices.BuildEmpty();
 		var store = new Store(
 			TestServices.Options(typeof(TestFeature).Assembly),
@@ -229,8 +227,8 @@ public class StoreTests {
 
 	[Fact]
 	public void ProcessAction_WhenMultipleFeatures_AllReducersRun() {
-		// Verifies Store.cs:152 (foreach reducers loop) iterates ALL registered feature reducers,
-		// not just the one whose state type matches the action.
+		// Dispatch must run reducers across ALL registered features, not just
+		// the one whose state type matches the action.
 		var store = BuildStoreWithDispatcher(out var dispatcher);
 		store.AddFeature<TestState>(new TestFeature());
 		store.AddFeature<SecondaryState>(new SecondaryFeature());
@@ -247,6 +245,23 @@ public class StoreTests {
 		// secondary: replay (Hits=0) + dispatch (Hits=1) = 2 entries — its reducer also matched Increment
 		Assert.Equal(2, secondaryReceived.Count);
 		Assert.Equal(1, secondaryReceived[1].Hits);
+	}
+
+	// === Dispose-time subscriber pruning ===
+
+	[Fact]
+	public void Subscribe_AndDispose_PrunesSubscribersDictionary() {
+		// Subscription disposal removes the callback and also drops the dictionary
+		// entry when the per-state list becomes empty (no leak across resubscribes).
+		var store = BuildStoreWithoutFeature();
+		store.AddFeature<TestState>(new TestFeature());
+
+		var sub = store.Subscribe<TestState>(_ => { });
+		Assert.True(store.HasSubscriberEntry(typeof(TestState)));
+
+		sub.Dispose();
+
+		Assert.False(store.HasSubscriberEntry(typeof(TestState)));
 	}
 
 	// === Inline fixtures for multi-feature scenario only ===
