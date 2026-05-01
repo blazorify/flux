@@ -38,6 +38,34 @@ namespace Blazorify.Flux.Components {
 			this.logger.LogDebug("[{stateType}] IDisposable registered for subscription", typeof(TState));
 		}
 
+		protected void Subscribe<TState>(Func<TState, Task> callback) where TState : class, new() {
+			ArgumentNullException.ThrowIfNull(callback);
+			this.logger.LogDebug("[{stateType}] Subscribing to state changes (async)", typeof(TState));
+
+			var disposable = this.store.Subscribe<TState>(async state => {
+				this.logger.LogDebug("[{stateType}] State change received (async)", typeof(TState));
+
+				// Caught here so a thrown user Task does not become an unobserved-task exception
+				// on the renderer's SynchronizationContext (the inner lambda is async void at the
+				// Action<TState> boundary).
+				try {
+					await callback(state);
+				} catch (Exception ex) {
+					this.logger.LogError(ex, "[{stateType}] User callback threw", typeof(TState));
+				}
+				this.logger.LogDebug("[{stateType}] Async callback for state change awaited", typeof(TState));
+
+				// Intentionally OUTSIDE the catch — a renderer-marshalling failure is a real
+				// component-lifecycle problem and must propagate.
+				await this.InvokeAsync(this.StateHasChanged);
+				this.logger.LogDebug("[{stateType}] Component notified that state has been changed", typeof(TState));
+			});
+
+			this.logger.LogDebug("[{stateType}] Subscribed to state changes (async)", typeof(TState));
+			this.disposables.Add(disposable);
+			this.logger.LogDebug("[{stateType}] IDisposable registered for subscription (async)", typeof(TState));
+		}
+
 		protected void Dispatch<TAction>() where TAction : IAction, new() {
 			this.Dispatch(new TAction());
 		}
