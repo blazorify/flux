@@ -28,6 +28,8 @@
 
   <ItemGroup>
     <InternalsVisibleTo Include="Blazorify.Flux.Tests.Unit" />
+    <InternalsVisibleTo Include="Blazorify.Flux.Tests.Integration" />
+    <InternalsVisibleTo Include="Blazorify.Flux.Tests.Components" />
   </ItemGroup>
 
   <ItemGroup>
