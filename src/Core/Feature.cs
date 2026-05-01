@@ -51,9 +51,7 @@ namespace Blazorify.Flux.Core {
 			}
 
 			foreach (var reducer in reducers) {
-				var oldState = this.state.Get();
-
-				if (this.state.ApplyChanges(reducer.Reduce(oldState, action), out TState newState)) {
+				if (this.state.Transform(state => reducer.Reduce(state, action), out TState newState)) {
 					callback(newState);
 				}
 			}
