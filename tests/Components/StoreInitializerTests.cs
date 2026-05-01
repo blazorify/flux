@@ -23,7 +23,7 @@ public class StoreInitializerTests : BunitContext {
 
 	[Fact]
 	public void Render_StoreInitializer_TriggersInitializeAndRegistersDiscoveredFeatures() {
-		var store = (Store)this.Services.GetRequiredService<IStore>();
+		var store = this.Services.GetRequiredService<IStore>();
 		Assert.Null(store.GetFeature<DiscoverableComponentState>());
 
 		this.Render<Blazorify.Flux.Components.StoreInitializer>();

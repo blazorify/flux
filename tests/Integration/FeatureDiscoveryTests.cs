@@ -28,7 +28,7 @@ public class FeatureDiscoveryTests {
 	public void Initialize_WhenDiscoverableFeatureInScannedAssembly_RegistersFeature() {
 		ClearSyncContext();
 		using var sp = BuildProvider();
-		var store = (Store)sp.GetRequiredService<IStore>();
+		var store = sp.GetRequiredService<IStore>();
 
 		store.Initialize();
 
@@ -39,7 +39,7 @@ public class FeatureDiscoveryTests {
 	public void Initialize_WhenFailingFeatureCoexistsWithDiscoverable_SkipsFailureRegistersWorking() {
 		ClearSyncContext();
 		using var sp = BuildProvider();
-		var store = (Store)sp.GetRequiredService<IStore>();
+		var store = sp.GetRequiredService<IStore>();
 
 		store.Initialize();
 
@@ -51,7 +51,7 @@ public class FeatureDiscoveryTests {
 	public void Initialize_WhenCalledTwice_IsIdempotent() {
 		ClearSyncContext();
 		using var sp = BuildProvider();
-		var store = (Store)sp.GetRequiredService<IStore>();
+		var store = sp.GetRequiredService<IStore>();
 
 		store.Initialize();
 		var featureAfterFirst = store.GetFeature<DiscoverableState>();
