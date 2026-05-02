@@ -4,15 +4,43 @@
 <PageTitle>Weather forecast</PageTitle>
 
 @using Blazorify.Flux.Demo.Data
+@using Blazorify.Flux.Interfaces
 @inject WeatherForecastService ForecastService
+@inject IStore Store
 
 <h1>Weather forecast</h1>
 
 <p>This component demonstrates fetching data from a service.</p>
 
-@if (forecasts == null) {
+@if (forecasts == null)
+{
 	<p><em>Loading...</em></p>
-} else {
+}
+else
+{
+	<div class="alert alert-info">
+		<strong>Highlighted forecast (parameterized selector — index @highlightIndex):</strong>
+		@if (highlighted is not null)
+		{
+			<span>@highlighted.Date.ToShortDateString() — @highlighted.TemperatureC °C — @highlighted.Summary</span>
+		}
+		else
+		{
+			<em>(out of range)</em>
+		}
+	</div>
+
+	<div class="btn-group mb-3" role="group" aria-label="Highlight day">
+		@for (var i = 0; i < forecasts.Length; i++)
+		{
+			var idx = i;
+			<button class="btn btn-sm @(idx == highlightIndex ? "btn-primary" : "btn-outline-primary")"
+					@onclick="() => Highlight(idx)">
+				Day @(idx + 1)
+			</button>
+		}
+	</div>
+
 	<table class="table">
 		<thead>
 			<tr>
@@ -23,7 +51,8 @@
 			</tr>
 		</thead>
 		<tbody>
-			@foreach (var forecast in forecasts) {
+			@foreach (var forecast in forecasts)
+			{
 				<tr>
 					<td>@forecast.Date.ToShortDateString()</td>
 					<td>@forecast.TemperatureC</td>
@@ -37,14 +66,38 @@
 
 @code {
 	private WeatherForecast[]? forecasts;
+	private int highlightIndex = 0;
+	private WeatherForecast? highlighted;
 
-	protected override async Task OnInitializedAsync() {
+	// Lifted to a static field so every call site shares the SAME delegate reference —
+	// single MethodInfo + null Target → single cached selector per (projector, index) pair.
+	private static readonly Func<ForecastState, int, WeatherForecast?> SelectByIndexProjector =
+		(state, index) => index >= 0 && index < state.Forecasts.Length ? state.Forecasts[index] : null;
+
+	protected override async Task OnInitializedAsync()
+	{
 		await Task.CompletedTask;
 
-		this.Subscribe<ForecastState>(state => {
+		this.Subscribe<ForecastState>(state =>
+		{
 			this.forecasts = state.Forecasts;
+			this.highlighted = this.Store
+				.Select<ForecastState, int, WeatherForecast?>(SelectByIndexProjector, this.highlightIndex)
+				.Select(state);
 		});
 
 		this.Dispatch<ForecastActions.GetForecast>();
+	}
+
+	private void Highlight(int index)
+	{
+		this.highlightIndex = index;
+		var state = this.Store.GetFeature<ForecastState>()?.State;
+		if (state is not null)
+		{
+			this.highlighted = this.Store
+				.Select<ForecastState, int, WeatherForecast?>(SelectByIndexProjector, index)
+				.Select(state);
+		}
 	}
 }
