@@ -29,6 +29,17 @@ namespace Blazorify.Flux.Interfaces {
 			IEqualityComparer<TResult> outputComparer
 		) where TState : class, new();
 
+		public ISelector<TState, TResult> Select<TState, TArg, TResult>(
+			Func<TState, TArg, TResult> projector,
+			TArg arg
+		) where TState : class, new();
+
+		public ISelector<TState, TResult> Select<TState, TArg, TResult>(
+			Func<TState, TArg, TResult> projector,
+			TArg arg,
+			IEqualityComparer<TArg> argComparer
+		) where TState : class, new();
+
 		internal void ProcessAction(IAction action);
 	}
 }

@@ -1,7 +1,9 @@
 using System;
+using System.Collections.Concurrent;
 using System.Collections.Generic;
 using System.Linq;
 using System.Reflection;
+using System.Runtime.CompilerServices;
 using System.Threading;
 using Blazorify.Flux.Interfaces;
 using Blazorify.Flux.Options;
@@ -22,6 +24,8 @@ namespace Blazorify.Flux.Core {
 		private readonly Dictionary<Type, Action<IAction>> effects = [];
 
 		private readonly Dictionary<Type, List<Delegate>> subscribers = [];
+
+		private readonly ConcurrentDictionary<ParameterizedSelectorKey, Object> parameterizedCache = new();
 
 		public Store(
 			IOptions<BlazorifyFluxOptions> optionsAccessor,
@@ -156,6 +160,101 @@ namespace Blazorify.Flux.Core {
 			ArgumentNullException.ThrowIfNull(outputComparer);
 
 			return new MemoizedSelector<TState, TResult>(projector, inputComparer, outputComparer);
+		}
+
+		public ISelector<TState, TResult> Select<TState, TArg, TResult>(
+			Func<TState, TArg, TResult> projector,
+			TArg arg
+		) where TState : class, new() {
+			return this.Select<TState, TArg, TResult>(projector, arg, EqualityComparer<TArg>.Default);
+		}
+
+		public ISelector<TState, TResult> Select<TState, TArg, TResult>(
+			Func<TState, TArg, TResult> projector,
+			TArg arg,
+			IEqualityComparer<TArg> argComparer
+		) where TState : class, new() {
+			ArgumentNullException.ThrowIfNull(projector);
+			ArgumentNullException.ThrowIfNull(argComparer);
+
+			// MethodHandle.Value is a stable runtime token; Delegate.GetHashCode hashes only the delegate type and would collapse the cache to one bucket.
+			var key = new ParameterizedSelectorKey(
+				projector.Method.MethodHandle,
+				projector.Target,
+				arg,
+				argComparer,
+				new ErasedComparer<TArg>(argComparer)
+			);
+
+			return (ISelector<TState, TResult>)this.parameterizedCache.GetOrAdd(
+				key,
+				static (k, ctx) => new MemoizedSelector<TState, TResult>(
+					state => ctx.projector(state, ctx.arg),
+					ReferenceEqualityComparer.Instance,
+					EqualityComparer<TResult>.Default
+				),
+				(projector, arg)
+			);
+		}
+
+		private readonly struct ParameterizedSelectorKey : IEquatable<ParameterizedSelectorKey> {
+			private readonly RuntimeMethodHandle projectorMethod;
+			private readonly Object? projectorTarget;
+			private readonly Object? arg;
+			// Compared by reference: two distinct comparer instances produce distinct cache slots even when functionally equivalent.
+			private readonly Object argComparerIdentity;
+			private readonly IEqualityComparer<Object?> argEqualityDispatch;
+			private readonly Int32 hashCode;
+
+			public ParameterizedSelectorKey(
+				RuntimeMethodHandle projectorMethod,
+				Object? projectorTarget,
+				Object? arg,
+				Object argComparerIdentity,
+				IEqualityComparer<Object?> argEqualityDispatch
+			) {
+				this.projectorMethod = projectorMethod;
+				this.projectorTarget = projectorTarget;
+				this.arg = arg;
+				this.argComparerIdentity = argComparerIdentity;
+				this.argEqualityDispatch = argEqualityDispatch;
+				this.hashCode = HashCode.Combine(
+					projectorMethod.Value,
+					RuntimeHelpers.GetHashCode(projectorTarget!),
+					RuntimeHelpers.GetHashCode(argComparerIdentity),
+					arg is null ? 0 : argEqualityDispatch.GetHashCode(arg)
+				);
+			}
+
+			public Boolean Equals(ParameterizedSelectorKey other) =>
+				this.projectorMethod.Value == other.projectorMethod.Value
+				&& ReferenceEquals(this.projectorTarget, other.projectorTarget)
+				&& ReferenceEquals(this.argComparerIdentity, other.argComparerIdentity)
+				&& this.argEqualityDispatch.Equals(this.arg, other.arg);
+
+			public override Boolean Equals(Object? obj) => obj is ParameterizedSelectorKey other && this.Equals(other);
+
+			public override Int32 GetHashCode() => this.hashCode;
+		}
+
+		private sealed class ErasedComparer<T> : IEqualityComparer<Object?> {
+			private readonly IEqualityComparer<T> inner;
+
+			public ErasedComparer(IEqualityComparer<T> inner) {
+				this.inner = inner;
+			}
+
+			public new Boolean Equals(Object? x, Object? y) {
+				if (x is null && y is null) {
+					return true;
+				}
+				if (x is null || y is null) {
+					return false;
+				}
+				return this.inner.Equals((T)x, (T)y);
+			}
+
+			public Int32 GetHashCode(Object? obj) => obj is null ? 0 : this.inner.GetHashCode((T)obj);
 		}
 
 		private void NotifySubscribers<TState>(TState state) where TState : class {
