@@ -197,6 +197,21 @@ namespace Blazorify.Flux.Core {
 			);
 		}
 
+		public IComposedSelector<TResult> Select<TState1, TState2, TInput1, TInput2, TResult>(
+			ISelector<TState1, TInput1> selectorA,
+			ISelector<TState2, TInput2> selectorB,
+			Func<TInput1, TInput2, TResult> combiner
+		) where TState1 : class, new()
+		  where TState2 : class, new() {
+			ArgumentNullException.ThrowIfNull(selectorA);
+			ArgumentNullException.ThrowIfNull(selectorB);
+			ArgumentNullException.ThrowIfNull(combiner);
+
+			return new ComposedSelector<TState1, TState2, TInput1, TInput2, TResult>(
+				this, selectorA, selectorB, combiner
+			);
+		}
+
 		private readonly struct ParameterizedSelectorKey : IEquatable<ParameterizedSelectorKey> {
 			private readonly RuntimeMethodHandle projectorMethod;
 			private readonly Object? projectorTarget;

@@ -34,6 +34,24 @@ public static class TestServices {
 	}
 
 	/// <summary>
+	/// Builds an IServiceProvider with IStore and IDispatcher registered, then invokes
+	/// each registration callback against the resolved Store. Bypasses Store.Initialize's
+	/// assembly scan so tests register only the features they need (and skip throwing
+	/// fixtures like FailingFeature that would otherwise pollute test diagnostics).
+	/// </summary>
+	public static IServiceProvider BuildWithStoreAndFeatures(
+		out Store store,
+		out Dispatcher dispatcher,
+		params Action<Store>[] featureRegistrations
+	) {
+		var provider = BuildWithStore(out store, out dispatcher);
+		foreach (var register in featureRegistrations) {
+			register(store);
+		}
+		return provider;
+	}
+
+	/// <summary>
 	/// Minimal IServiceProvider for tests that do NOT trigger Store effects.
 	/// Effects throw if the test triggers one (no IDispatcher registered) — by design.
 	/// </summary>

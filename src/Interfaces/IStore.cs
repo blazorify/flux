@@ -40,6 +40,13 @@ namespace Blazorify.Flux.Interfaces {
 			IEqualityComparer<TArg> argComparer
 		) where TState : class, new();
 
+		public IComposedSelector<TResult> Select<TState1, TState2, TInput1, TInput2, TResult>(
+			ISelector<TState1, TInput1> selectorA,
+			ISelector<TState2, TInput2> selectorB,
+			Func<TInput1, TInput2, TResult> combiner
+		) where TState1 : class, new()
+		  where TState2 : class, new();
+
 		internal void ProcessAction(IAction action);
 	}
 }
