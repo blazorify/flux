@@ -18,19 +18,23 @@
 @code {
 	private int currentCount = 0;
 
-	protected override void OnInitialized() {
+	protected override void OnInitialized()
+	{
 		base.OnInitialized();
 
-		this.Subscribe<CounterState>(state => {
+		this.Subscribe<CounterState>(state =>
+		{
 			this.currentCount = state.CurrentCount;
 		});
 	}
 
-	private void IncrementCount() {
+	private void IncrementCount()
+	{
 		this.Dispatch<CounterActions.Increment>();
 	}
 
-	private void DecrementCount() {
+	private void DecrementCount()
+	{
 		this.Dispatch<CounterActions.Decrement>();
 	}
 }
