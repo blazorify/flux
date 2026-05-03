@@ -5,6 +5,7 @@ using System.Linq;
 using System.Reflection;
 using System.Runtime.CompilerServices;
 using System.Threading;
+using System.Threading.Tasks;
 using Blazorify.Flux.Interfaces;
 using Blazorify.Flux.Options;
 using Microsoft.Extensions.DependencyInjection;
@@ -104,35 +105,99 @@ namespace Blazorify.Flux.Core {
 			return null;
 		}
 
-		public IDisposable Subscribe<TState>(Action<TState> callback) where TState : class, new() {
-			ArgumentNullException.ThrowIfNull(callback);
-
+		private IDisposable SubscribeRaw<TState>(Action<TState> wrapper) where TState : class, new() {
 			var stateType = typeof(TState);
 
 			lock (this.subscribers) {
-				if (!this.subscribers.TryGetValue(stateType, out var subscribers)) {
-					this.subscribers.Add(stateType, subscribers = []);
+				if (!this.subscribers.TryGetValue(stateType, out var list)) {
+					this.subscribers.Add(stateType, list = []);
 				}
 
-				subscribers.Add(callback);
+				list.Add(wrapper);
 			}
 
-			// Dispose-time pruning of empty subscriber lists
-			var subscription = new Subscription(() => {
+			return new Subscription(() => {
 				lock (this.subscribers) {
 					if (this.subscribers.TryGetValue(stateType, out var list)) {
-						list.Remove(callback);
+						list.Remove(wrapper);
 						if (list.Count == 0) {
 							this.subscribers.Remove(stateType);
 						}
 					}
 				}
 			});
+		}
+
+		public IDisposable Subscribe<TState>(Action<TState> callback) where TState : class, new() {
+			ArgumentNullException.ThrowIfNull(callback);
+
+			var subscription = this.SubscribeRaw<TState>(callback);
 
 			var feature = this.GetFeature<TState>();
-
 			if (feature is not null) {
 				callback.Invoke(feature.State);
+			}
+
+			return subscription;
+		}
+
+		public IDisposable Subscribe<TState, TResult>(
+			ISelector<TState, TResult> selector,
+			Action<TResult> callback
+		) where TState : class, new() {
+			ArgumentNullException.ThrowIfNull(selector);
+			ArgumentNullException.ThrowIfNull(callback);
+
+			TResult? prev = default;
+			var hasPrev = false;
+
+			var subscription = this.SubscribeRaw<TState>(state => {
+				var next = selector.Select(state);
+				if (!hasPrev || !ReferenceEquals(prev, next)) {
+					prev = next;
+					hasPrev = true;
+					callback(next);
+				}
+			});
+
+			var feature = this.GetFeature<TState>();
+			if (feature is not null) {
+				var initial = selector.Select(feature.State);
+				prev = initial;
+				hasPrev = true;
+				callback(initial);
+			}
+
+			return subscription;
+		}
+
+		public IDisposable Subscribe<TState, TResult>(
+			ISelector<TState, TResult> selector,
+			Func<TResult, Task> callback
+		) where TState : class, new() {
+			ArgumentNullException.ThrowIfNull(selector);
+			ArgumentNullException.ThrowIfNull(callback);
+
+			TResult? prev = default;
+			var hasPrev = false;
+
+			// Async-void at the Action<TState> boundary; Store-side does not try/catch the user Task — FluxComponent owns that boundary.
+			var subscription = this.SubscribeRaw<TState>(async state => {
+				var next = selector.Select(state);
+				if (!hasPrev || !ReferenceEquals(prev, next)) {
+					prev = next;
+					hasPrev = true;
+					await callback(next);
+				}
+			});
+
+			var feature = this.GetFeature<TState>();
+			if (feature is not null) {
+				var initial = selector.Select(feature.State);
+				prev = initial;
+				hasPrev = true;
+				// Initial replay is fire-and-forget to match the sync overload's "replay invokes immediately" contract.
+				_ = callback(initial);
 			}
 
 			return subscription;

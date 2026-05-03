@@ -85,6 +85,9 @@ namespace Blazorify.Flux.Core {
 		private TResult lastResult = default!;
 		private Boolean hasResult;
 
+		internal Type SliceA => typeof(TState1);
+		internal Type SliceB => typeof(TState2);
+
 		public ComposedSelector(
 			IStore store,
 			ISelector<TState1, TInput1> selectorA,

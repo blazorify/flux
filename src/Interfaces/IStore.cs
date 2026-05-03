@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Threading.Tasks;
 
 namespace Blazorify.Flux.Interfaces {
 	/// <summary>
@@ -46,6 +47,16 @@ namespace Blazorify.Flux.Interfaces {
 			Func<TInput1, TInput2, TResult> combiner
 		) where TState1 : class, new()
 		  where TState2 : class, new();
+
+		public IDisposable Subscribe<TState, TResult>(
+			ISelector<TState, TResult> selector,
+			Action<TResult> callback
+		) where TState : class, new();
+
+		public IDisposable Subscribe<TState, TResult>(
+			ISelector<TState, TResult> selector,
+			Func<TResult, Task> callback
+		) where TState : class, new();
 
 		internal void ProcessAction(IAction action);
 	}
