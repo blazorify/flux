@@ -1,12 +1,9 @@
-name: preview
+name: release
 
 on:
   push:
     branches:
-      - preview
-  pull_request:
-    branches:
-      - preview
+      - main
 
 jobs:
   build-and-test:
@@ -31,10 +28,10 @@ jobs:
       - name: Test
         run: dotnet test --no-build --configuration Release
 
-  publish-preview:
-    name: Publish Preview to NuGet
+  publish-release:
+    name: Publish Release to NuGet
     needs: build-and-test
-    if: github.event_name == 'push' && github.ref == 'refs/heads/preview'
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
 
     steps:
@@ -46,16 +43,8 @@ jobs:
         with:
           dotnet-version: "10.0.x"
 
-      - name: Generate preview version
-        id: version
-        run: |
-          BASE_VERSION=$(grep -oPm1 '(?<=<Version>)[^<]+' src/Blazorify.Flux.csproj)
-          TIMESTAMP=$(date -u +"%y%m%d%H%M%S")
-          echo "version=$BASE_VERSION-preview.$TIMESTAMP" >> "$GITHUB_OUTPUT"
-
       - name: Pack
-        run: dotnet pack --configuration Release --output ./artifacts /p:Version=${{ steps.version.outputs.version }}
+        run: dotnet pack --configuration Release --output ./artifacts
 
       - name: Publish to NuGet
         run: dotnet nuget push ./artifacts/*.nupkg --api-key ${{ secrets.NUGET_API_KEY }} --source https://api.nuget.org/v3/index.json
-
