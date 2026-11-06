@@ -9,6 +9,8 @@ namespace Blazorify.Flux.Components {
 	public partial class FluxComponent : ComponentBase, IAsyncDisposable {
 		private readonly List<IDisposable> disposables = [];
 
+		private Boolean disposed;
+
 		[Inject]
 		private IStore store { get; set; } = default!;
 
@@ -22,9 +24,19 @@ namespace Blazorify.Flux.Components {
 			this.logger.LogDebug("[{stateType}] Subscribing to state changes", typeof(TState));
 
 			var disposable = this.store.Subscribe<TState>(async state => {
+				if (this.disposed) {
+					return;
+				}
+
 				this.logger.LogDebug("[{stateType}] State change received", typeof(TState));
 
-				callback.Invoke(state);
+				// Caught for the same reason as the async overload: this lambda is async void, so a throw
+				// would be rethrown on the renderer's context and end the circuit.
+				try {
+					callback.Invoke(state);
+				} catch (Exception ex) {
+					this.logger.LogError(ex, "[{stateType}] User callback threw", typeof(TState));
+				}
 				this.logger.LogDebug("[{stateType}] Callback for state change called", typeof(TState));
 
 				await this.InvokeAsync(this.StateHasChanged);
@@ -43,6 +55,10 @@ namespace Blazorify.Flux.Components {
 			this.logger.LogDebug("[{stateType}] Subscribing to state changes (async)", typeof(TState));
 
 			var disposable = this.store.Subscribe<TState>(async state => {
+				if (this.disposed) {
+					return;
+				}
+
 				this.logger.LogDebug("[{stateType}] State change received (async)", typeof(TState));
 
 				// Caught here so a thrown user Task does not become an unobserved-task exception
@@ -54,6 +70,11 @@ namespace Blazorify.Flux.Components {
 					this.logger.LogError(ex, "[{stateType}] User callback threw", typeof(TState));
 				}
 				this.logger.LogDebug("[{stateType}] Async callback for state change awaited", typeof(TState));
+
+				// A callback that awaited may resume after the component was disposed; rendering then would throw.
+				if (this.disposed) {
+					return;
+				}
 
 				// Intentionally OUTSIDE the catch — a renderer-marshalling failure is a real
 				// component-lifecycle problem and must propagate.
@@ -83,15 +104,29 @@ namespace Blazorify.Flux.Components {
 		}
 
 		protected void Dispatch(IAction action) {
-			this.logger.LogDebug("[{actionType}] Dispatching action", typeof(IAction));
+			ArgumentNullException.ThrowIfNull(action);
+
+			this.logger.LogDebug("[{actionType}] Dispatching action", action.GetType());
 
 			this.dispatcher.Dispatch(action);
 
-			this.logger.LogDebug("[{actionType}] Action has been dispatched", typeof(IAction));
+			this.logger.LogDebug("[{actionType}] Action has been dispatched", action.GetType());
 		}
 
-		public async ValueTask DisposeAsync() {
-			await Task.CompletedTask;
+		/// <summary>
+		/// Releases the component's store subscriptions.
+		/// </summary>
+		/// <remarks>
+		/// Virtual so a derived component can release its own resources: the renderer disposes a component
+		/// through <see cref="IAsyncDisposable"/> only, and never calls an <see cref="IDisposable.Dispose"/>
+		/// the derived type adds. Overrides must call <c>base.DisposeAsync()</c>.
+		/// </remarks>
+		public virtual ValueTask DisposeAsync() {
+			if (this.disposed) {
+				return ValueTask.CompletedTask;
+			}
+
+			this.disposed = true;
 
 			this.logger.LogDebug("Disposing {count} subscriptions", this.disposables.Count);
 
@@ -104,6 +139,10 @@ namespace Blazorify.Flux.Components {
 			this.disposables.Clear();
 
 			this.logger.LogDebug("Disposables list has been cleared");
+
+			GC.SuppressFinalize(this);
+
+			return ValueTask.CompletedTask;
 		}
 	}
 }
