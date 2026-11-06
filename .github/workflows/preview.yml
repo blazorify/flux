@@ -37,6 +37,12 @@ jobs:
     if: github.event_name == 'push' && github.ref == 'refs/heads/preview'
     runs-on: ubuntu-latest
 
+    # id-token lets the job exchange a GitHub OIDC token for a short-lived NuGet key.
+    # Naming any permission drops the rest to none, so contents is restated for checkout.
+    permissions:
+      contents: read
+      id-token: write
+
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -56,6 +62,13 @@ jobs:
       - name: Pack
         run: dotnet pack --configuration Release --output ./artifacts /p:Version=${{ steps.version.outputs.version }}
 
+      # The key is valid for an hour and single-use, so it is requested right before the push.
+      - name: NuGet Login
+        id: login
+        uses: NuGet/login@v1
+        with:
+          user: ${{ secrets.NUGET_USER }}
+
       - name: Publish to NuGet
-        run: dotnet nuget push ./artifacts/*.nupkg --api-key ${{ secrets.NUGET_API_KEY }} --source https://api.nuget.org/v3/index.json
+        run: dotnet nuget push ./artifacts/*.nupkg --api-key ${{ steps.login.outputs.NUGET_API_KEY }} --source https://api.nuget.org/v3/index.json
 
