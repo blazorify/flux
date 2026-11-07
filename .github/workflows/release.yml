@@ -37,10 +37,10 @@ jobs:
     if: github.event_name == 'push' && github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
 
-    # id-token lets the job exchange a GitHub OIDC token for a short-lived NuGet key.
-    # Naming any permission drops the rest to none, so contents is restated for checkout.
+    # Naming any permission drops the rest to none, so contents is restated for
+    # checkout - at write level, since the job tags the release.
     permissions:
-      contents: read
+      contents: write
       id-token: write
 
     steps:
@@ -52,8 +52,12 @@ jobs:
         with:
           dotnet-version: "10.0.x"
 
+      - name: Read version
+        id: version
+        run: echo "version=$(grep -oPm1 '(?<=<Version>)[^<]+' src/Blazorify.Flux.csproj)" >> "$GITHUB_OUTPUT"
+
       - name: Pack
-        run: dotnet pack --configuration Release --output ./artifacts
+        run: dotnet pack src/Blazorify.Flux.csproj --configuration Release --output ./artifacts
 
       # The key is valid for an hour and single-use, so it is requested right before the push.
       - name: NuGet Login
@@ -64,3 +68,9 @@ jobs:
 
       - name: Publish to NuGet
         run: dotnet nuget push ./artifacts/*.nupkg --api-key ${{ steps.login.outputs.NUGET_API_KEY }} --source https://api.nuget.org/v3/index.json
+
+      # Only once the push succeeded, so a failed publish leaves the number free.
+      - name: Tag release
+        run: |
+          git tag "v${{ steps.version.outputs.version }}"
+          git push origin "v${{ steps.version.outputs.version }}"
