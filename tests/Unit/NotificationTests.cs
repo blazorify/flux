@@ -133,6 +133,7 @@ public class NotificationTests {
 		Assert.Equal(new[] { 0, 1 }, later);
 		var entry = Assert.Single(logger.Entries);
 		Assert.IsType<InvalidOperationException>(entry.Exception);
+		Assert.Contains($"A subscriber to '{typeof(TestState).FullName}' threw", entry.Message);
 	}
 
 	// === Notifications that run late, or out of order ===
