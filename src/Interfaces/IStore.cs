@@ -58,6 +58,16 @@ namespace Blazorify.Flux.Interfaces {
 			Func<TResult, Task> callback
 		) where TState : class, new();
 
+		public IDisposable Subscribe<TResult>(
+			IComposedSelector<TResult> selector,
+			Action<TResult> callback
+		);
+
+		public IDisposable Subscribe<TResult>(
+			IComposedSelector<TResult> selector,
+			Func<TResult, Task> callback
+		);
+
 		internal void ProcessAction(IAction action);
 	}
 }

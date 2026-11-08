@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Concurrent;
 using System.Threading;
 using System.Threading.Tasks;
 using Blazorify.Flux.Core;
@@ -175,6 +176,286 @@ public class SelectorSubscribeTests {
 		Assert.False(store.HasSubscriberEntry(typeof(TestState)));
 		Assert.InRange(invocations, 100, 200);
 	}
+
+	// === Composed Subscribe (IComposedSelector<TResult>) ===
+
+	private static void RegisterBothFeatures(Store store) {
+		store.AddFeature<TestState>(new TestFeature());
+		store.AddFeature<SecondaryState>(new SecondaryFeature());
+	}
+
+	private static IComposedSelector<CombinedProjection> SelectCombined(Store store) {
+		var counterSel = store.Select<TestState, int>(s => s.Counter);
+		var labelSel = store.Select<SecondaryState, string>(s => s.Label);
+		return store.Select(counterSel, labelSel, (c, l) => new CombinedProjection(c, l));
+	}
+
+	[Fact]
+	public void Subscribe_OnInitialCall_ReplaysComposedProjection() {
+		ClearSyncContext();
+		TestServices.BuildWithStoreAndFeatures(out var store, out _, RegisterBothFeatures);
+		var composed = SelectCombined(store);
+
+		var invocations = 0;
+		CombinedProjection? last = null;
+		using var sub = store.Subscribe<CombinedProjection>(composed, view => {
+			invocations++;
+			last = view;
+		});
+
+		Assert.Equal(1, invocations);
+		Assert.Equal(new CombinedProjection(0, string.Empty), last);
+	}
+
+	[Fact]
+	public void Subscribe_AfterDispatchChangingFirstSlice_FiresCallback() {
+		ClearSyncContext();
+		TestServices.BuildWithStoreAndFeatures(out var store, out var dispatcher, RegisterBothFeatures);
+		var composed = SelectCombined(store);
+
+		var invocations = 0;
+		CombinedProjection? last = null;
+		using var sub = store.Subscribe<CombinedProjection>(composed, view => {
+			invocations++;
+			last = view;
+		});
+		invocations = 0;
+
+		dispatcher.Dispatch(new TestActions.Increment());
+
+		Assert.Equal(1, invocations);
+		Assert.Equal(1, last!.Counter);
+	}
+
+	[Fact]
+	public void Subscribe_AfterDispatchChangingSecondSlice_FiresCallback() {
+		ClearSyncContext();
+		TestServices.BuildWithStoreAndFeatures(out var store, out var dispatcher, RegisterBothFeatures);
+		var composed = SelectCombined(store);
+
+		var invocations = 0;
+		CombinedProjection? last = null;
+		using var sub = store.Subscribe<CombinedProjection>(composed, view => {
+			invocations++;
+			last = view;
+		});
+		invocations = 0;
+
+		dispatcher.Dispatch(new SecondaryActions.SetLabel("changed"));
+
+		Assert.Equal(1, invocations);
+		Assert.Equal("changed", last!.Label);
+	}
+
+	[Fact]
+	public void Subscribe_AfterDispatchPreservingComposedProjection_DoesNotFireCallback() {
+		ClearSyncContext();
+		TestServices.BuildWithStoreAndFeatures(out var store, out var dispatcher, RegisterBothFeatures);
+		var composed = SelectCombined(store);
+
+		var invocations = 0;
+		using var sub = store.Subscribe<CombinedProjection>(composed, _ => invocations++);
+		invocations = 0;
+
+		// Name is not part of the projection, so the composed selector hands back its cached instance.
+		dispatcher.Dispatch(new TestActions.SetName("renamed"));
+
+		Assert.Equal(0, invocations);
+	}
+
+	[Fact]
+	public void Subscribe_BeforeFeatureRegistered_ThrowsInvalidOperationException() {
+		ClearSyncContext();
+		TestServices.BuildWithStoreAndFeatures(out var store, out _,
+			s => s.AddFeature<TestState>(new TestFeature()));
+		var composed = SelectCombined(store);
+
+		var ex = Assert.Throws<InvalidOperationException>(() =>
+			store.Subscribe<CombinedProjection>(composed, _ => { }));
+
+		Assert.Contains(typeof(SecondaryState).FullName!, ex.Message);
+		Assert.False(store.HasSubscriberEntry(typeof(TestState)));
+		Assert.False(store.HasSubscriberEntry(typeof(SecondaryState)));
+	}
+
+	[Fact]
+	public void Subscribe_DisposeRemovesFromBothSubscriberListsAndPrunesEntries() {
+		ClearSyncContext();
+		TestServices.BuildWithStoreAndFeatures(out var store, out _, RegisterBothFeatures);
+		var composed = SelectCombined(store);
+
+		var sub = store.Subscribe<CombinedProjection>(composed, _ => { });
+
+		Assert.True(store.HasSubscriberEntry(typeof(TestState)));
+		Assert.True(store.HasSubscriberEntry(typeof(SecondaryState)));
+
+		sub.Dispose();
+
+		Assert.False(store.HasSubscriberEntry(typeof(TestState)));
+		Assert.False(store.HasSubscriberEntry(typeof(SecondaryState)));
+	}
+
+	[Fact]
+	public void Subscribe_TwoComposedSubscribers_FireIndependently() {
+		ClearSyncContext();
+		TestServices.BuildWithStoreAndFeatures(out var store, out var dispatcher, RegisterBothFeatures);
+		var composed = SelectCombined(store);
+
+		var inv1 = 0;
+		var inv2 = 0;
+		using var sub1 = store.Subscribe<CombinedProjection>(composed, _ => inv1++);
+		using var sub2 = store.Subscribe<CombinedProjection>(composed, _ => inv2++);
+		inv1 = 0;
+		inv2 = 0;
+
+		dispatcher.Dispatch(new TestActions.Increment());
+
+		Assert.Equal(1, inv1);
+		Assert.Equal(1, inv2);
+	}
+
+	[Fact]
+	public void Subscribe_FromMultipleThreads_DoesNotCorruptComposedCallbackList() {
+		ClearSyncContext();
+		TestServices.BuildWithStoreAndFeatures(out var store, out _, RegisterBothFeatures);
+		var composed = SelectCombined(store);
+		var invocations = 0;
+
+		var ex = Record.Exception(() =>
+			Parallel.For(0, 100, _ => {
+				var sub = store.Subscribe<CombinedProjection>(composed, _ => Interlocked.Increment(ref invocations));
+				sub.Dispose();
+			})
+		);
+
+		Assert.Null(ex);
+		Assert.False(store.HasSubscriberEntry(typeof(TestState)));
+		Assert.False(store.HasSubscriberEntry(typeof(SecondaryState)));
+		Assert.InRange(invocations, 100, 200);
+	}
+
+	[Fact]
+	public void Subscribe_DispatchesToBothSlicesOnDifferentThreads_DoNotRunCallbackConcurrently() {
+		ClearSyncContext();
+		TestServices.BuildWithStoreAndFeatures(out var store, out _, RegisterBothFeatures);
+		var composed = SelectCombined(store);
+		var inside = 0;
+		var maxInside = 0;
+		var firstEntered = new ManualResetEventSlim();
+
+		using var sub = store.Subscribe<CombinedProjection>(composed, view => {
+			var now = Interlocked.Increment(ref inside);
+			InterlockedMax(ref maxInside, now);
+			if (view.Counter == 1) {
+				firstEntered.Set();
+				Thread.Sleep(200);
+			}
+			Interlocked.Decrement(ref inside);
+		});
+
+		var processor = (IStore)store;
+		var first = Task.Run(() => processor.ProcessAction(new TestActions.Increment()));
+		Assert.True(firstEntered.Wait(TimeSpan.FromSeconds(5)));
+		var second = Task.Run(() => processor.ProcessAction(new SecondaryActions.SetLabel("changed")));
+		Task.WaitAll(first, second);
+
+		Assert.Equal(1, maxInside);
+	}
+
+	[Fact]
+	public async Task Subscribe_AsyncCallback_ReplaysAndFiresOnEitherSlice() {
+		ClearSyncContext();
+		TestServices.BuildWithStoreAndFeatures(out var store, out var dispatcher, RegisterBothFeatures);
+		var composed = SelectCombined(store);
+		var seen = new ConcurrentQueue<CombinedProjection>();
+
+		using var sub = store.Subscribe<CombinedProjection>(composed, async view => {
+			await Task.Yield();
+			seen.Enqueue(view);
+		});
+		dispatcher.Dispatch(new TestActions.Increment());
+		dispatcher.Dispatch(new SecondaryActions.SetLabel("changed"));
+
+		var deadline = DateTime.UtcNow.AddSeconds(5);
+		while (DateTime.UtcNow < deadline && seen.Count < 3) {
+			await Task.Delay(10);
+		}
+
+		Assert.Equal(3, seen.Count);
+		Assert.Contains(new CombinedProjection(1, "changed"), seen);
+	}
+
+	[Fact]
+	public void Subscribe_InitialComposedProjectionIsNull_ReplaysNull() {
+		ClearSyncContext();
+		TestServices.BuildWithStoreAndFeatures(out var store, out _, RegisterBothFeatures);
+		var counterSel = store.Select<TestState, int>(s => s.Counter);
+		var labelSel = store.Select<SecondaryState, string>(s => s.Label);
+		var composed = store.Select(counterSel, labelSel, (c, l) => (CombinedProjection?)null);
+
+		var invocations = 0;
+		using var sub = store.Subscribe<CombinedProjection?>(composed, _ => invocations++);
+
+		Assert.Equal(1, invocations);
+	}
+
+	[Fact]
+	public void Subscribe_AsyncCallback_InitialComposedProjectionIsNull_ReplaysNull() {
+		ClearSyncContext();
+		TestServices.BuildWithStoreAndFeatures(out var store, out _, RegisterBothFeatures);
+		var counterSel = store.Select<TestState, int>(s => s.Counter);
+		var labelSel = store.Select<SecondaryState, string>(s => s.Label);
+		var composed = store.Select(counterSel, labelSel, (c, l) => (CombinedProjection?)null);
+
+		var invocations = 0;
+		using var sub = store.Subscribe<CombinedProjection?>(composed, _ => {
+			invocations++;
+			return Task.CompletedTask;
+		});
+
+		Assert.Equal(1, invocations);
+	}
+
+	[Fact]
+	public void Subscribe_AsyncCallback_AfterDispatchPreservingComposedProjection_DoesNotFireCallback() {
+		ClearSyncContext();
+		TestServices.BuildWithStoreAndFeatures(out var store, out var dispatcher, RegisterBothFeatures);
+		var composed = SelectCombined(store);
+
+		var invocations = 0;
+		using var sub = store.Subscribe<CombinedProjection>(composed, _ => {
+			invocations++;
+			return Task.CompletedTask;
+		});
+		invocations = 0;
+
+		dispatcher.Dispatch(new TestActions.SetName("renamed"));
+
+		Assert.Equal(0, invocations);
+	}
+
+	[Fact]
+	public void Subscribe_Composed_NullArguments_Throw() {
+		ClearSyncContext();
+		TestServices.BuildWithStoreAndFeatures(out var store, out _, RegisterBothFeatures);
+		var composed = SelectCombined(store);
+
+		Assert.Throws<ArgumentNullException>(() => store.Subscribe<CombinedProjection>(null!, (Action<CombinedProjection>)(_ => { })));
+		Assert.Throws<ArgumentNullException>(() => store.Subscribe<CombinedProjection>(null!, (Func<CombinedProjection, Task>)(_ => Task.CompletedTask)));
+		Assert.Throws<ArgumentNullException>(() => store.Subscribe(composed, (Action<CombinedProjection>)null!));
+		Assert.Throws<ArgumentNullException>(() => store.Subscribe(composed, (Func<CombinedProjection, Task>)null!));
+	}
+
+	private static void InterlockedMax(ref int target, int value) {
+		int current;
+		while (value > (current = Volatile.Read(ref target))) {
+			if (Interlocked.CompareExchange(ref target, value, current) == current) {
+				return;
+			}
+		}
+	}
+
+	private record CombinedProjection(int Counter, string Label);
 
 	private record CounterProjection(int Value);
 }

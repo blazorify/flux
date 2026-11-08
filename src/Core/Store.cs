@@ -28,6 +28,9 @@ namespace Blazorify.Flux.Core {
 
 		private readonly ConcurrentDictionary<ParameterizedSelectorKey, Object> parameterizedCache = new();
 
+		private static readonly MethodInfo subscribeSliceOpenGeneric = typeof(Store)
+			.GetMethod(nameof(SubscribeSlice), BindingFlags.Instance | BindingFlags.NonPublic)!;
+
 		public Store(
 			IOptions<BlazorifyFluxOptions> optionsAccessor,
 			IServiceProvider serviceProvider,
@@ -117,9 +120,9 @@ namespace Blazorify.Flux.Core {
 		/// another thread cannot slip an older state in after it. Exceptions from the replay propagate to
 		/// the caller of Subscribe, as before.
 		/// </remarks>
-		private IDisposable SubscribeRaw<TState>(Action<TState> wrapper, Action<TState>? replay = null) where TState : class, new() {
+		private IDisposable SubscribeRaw<TState>(Action<TState> wrapper, Action<TState>? replay = null, Object? gate = null) where TState : class, new() {
 			var stateType = typeof(TState);
-			var entry = new SubscriberEntry(wrapper);
+			var entry = new SubscriberEntry(wrapper, gate ?? new Object());
 
 			lock (this.subscribers) {
 				if (!this.subscribers.TryGetValue(stateType, out var list)) {
@@ -215,6 +218,89 @@ namespace Blazorify.Flux.Core {
 					_ = callback(initial);
 				}
 			);
+		}
+
+		public IDisposable Subscribe<TResult>(
+			IComposedSelector<TResult> selector,
+			Action<TResult> callback
+		) {
+			ArgumentNullException.ThrowIfNull(selector);
+			ArgumentNullException.ThrowIfNull(callback);
+
+			TResult? prev = default;
+			var hasPrev = false;
+
+			return this.SubscribeComposed(selector, () => {
+				var next = selector.Select();
+				if (!hasPrev || !ReferenceEquals(prev, next)) {
+					prev = next;
+					hasPrev = true;
+					callback(next);
+				}
+			});
+		}
+
+		public IDisposable Subscribe<TResult>(
+			IComposedSelector<TResult> selector,
+			Func<TResult, Task> callback
+		) {
+			ArgumentNullException.ThrowIfNull(selector);
+			ArgumentNullException.ThrowIfNull(callback);
+
+			TResult? prev = default;
+			var hasPrev = false;
+
+			// The projection and the prev comparison run synchronously, so a Select() throw on the initial tick
+			// reaches the Subscribe caller instead of being lost in an async-void state machine.
+			return this.SubscribeComposed(selector, () => {
+				var next = selector.Select();
+				if (!hasPrev || !ReferenceEquals(prev, next)) {
+					prev = next;
+					hasPrev = true;
+					_ = callback(next);
+				}
+			});
+		}
+
+		/// <summary>
+		/// Registers <paramref name="tick"/> against both states a composed selector reads, and runs it once
+		/// as the initial replay.
+		/// </summary>
+		/// <remarks>
+		/// Both registrations share one delivery gate: dispatches to the two states on different threads
+		/// would otherwise run the tick concurrently and race on its previous-value slot. The initial tick
+		/// throws when either feature is unregistered; both registrations are removed before rethrowing.
+		/// </remarks>
+		private IDisposable SubscribeComposed<TResult>(IComposedSelector<TResult> selector, Action tick) {
+			var slices = (IComposedSelectorSlices)selector;
+			var gate = new Object();
+
+			var subscriptionA = this.SubscribeSliceOf(slices.SliceA, tick, gate);
+			var subscriptionB = this.SubscribeSliceOf(slices.SliceB, tick, gate);
+			var subscription = new Subscription(() => {
+				subscriptionA.Dispose();
+				subscriptionB.Dispose();
+			});
+
+			try {
+				lock (gate) {
+					tick();
+				}
+			} catch {
+				subscription.Dispose();
+				throw;
+			}
+
+			return subscription;
+		}
+
+		private IDisposable SubscribeSliceOf(Type stateType, Action tick, Object gate) {
+			return (IDisposable)subscribeSliceOpenGeneric.MakeGenericMethod(stateType).Invoke(this, [tick, gate])!;
+		}
+
+		// No per-slice replay: the composed subscription replays once, through the combined projection.
+		private IDisposable SubscribeSlice<TState>(Action tick, Object gate) where TState : class, new() {
+			return this.SubscribeRaw<TState>(_ => tick(), replay: static _ => { }, gate);
 		}
 
 		public ISelector<TState, TResult> Select<TState, TResult>(Func<TState, TResult> projector)
@@ -477,14 +563,15 @@ namespace Blazorify.Flux.Core {
 		private sealed class SubscriberEntry {
 			private volatile Boolean isActive = true;
 
-			public SubscriberEntry(Delegate callback) {
+			public SubscriberEntry(Delegate callback, Object gate) {
 				this.Callback = callback;
+				this.Gate = gate;
 			}
 
 			public Delegate Callback { get; }
 
 			// A Monitor (reentrant): a subscriber that dispatches inline is delivered to again on the same thread.
-			public Object Gate { get; } = new();
+			public Object Gate { get; }
 
 			public Boolean IsActive => this.isActive;
 

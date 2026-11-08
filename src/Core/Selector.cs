@@ -69,8 +69,13 @@ namespace Blazorify.Flux.Core {
 		}
 	}
 
+	internal interface IComposedSelectorSlices {
+		Type SliceA { get; }
+		Type SliceB { get; }
+	}
+
 	internal sealed class ComposedSelector<TState1, TState2, TInput1, TInput2, TResult>
-		: IComposedSelector<TResult>
+		: IComposedSelector<TResult>, IComposedSelectorSlices
 		where TState1 : class, new()
 		where TState2 : class, new() {
 
@@ -85,8 +90,8 @@ namespace Blazorify.Flux.Core {
 		private TResult lastResult = default!;
 		private Boolean hasResult;
 
-		internal Type SliceA => typeof(TState1);
-		internal Type SliceB => typeof(TState2);
+		public Type SliceA => typeof(TState1);
+		public Type SliceB => typeof(TState2);
 
 		public ComposedSelector(
 			IStore store,
