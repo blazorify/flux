@@ -1,4 +1,5 @@
 using System.Collections.Concurrent;
+using Blazorify.Flux.Core;
 using Blazorify.Flux.Interfaces;
 using Blazorify.Flux.Tests.Unit.Fixtures;
 using Xunit;
@@ -103,6 +104,60 @@ public class ParameterizedSelectorTests {
 
 		Assert.Same(nullCall1, nullCall2);
 		Assert.NotSame(nullCall1, nonNullCall);
+	}
+
+	[Fact]
+	public void Select_WithNullAndNonNullArgsUnderCollidingHashes_ReturnsDistinctSelectors() {
+		ClearSyncContext();
+		TestServices.BuildWithStore(out var store, out _);
+		Func<TestState, string?, int> projector = (state, name) => state.Counter;
+		var comparer = new CollidingLengthComparer();
+
+		var nullSel = store.Select<TestState, string?, int>(projector, null, comparer);
+		var nonNullSel = store.Select<TestState, string?, int>(projector, "x", comparer);
+		var nullAgain = store.Select<TestState, string?, int>(projector, null, comparer);
+
+		Assert.NotSame(nullSel, nonNullSel);
+		Assert.Same(nullSel, nullAgain);
+	}
+
+	[Fact]
+	public void Select_WithNullArgAndComparerRejectingNull_DoesNotHashNull() {
+		ClearSyncContext();
+		TestServices.BuildWithStore(out var store, out _);
+		Func<TestState, string?, int> projector = (state, name) => state.Counter;
+
+		var ex = Record.Exception(() => store.Select<TestState, string?, int>(projector, null, StringComparer.Ordinal));
+
+		Assert.Null(ex);
+	}
+
+	[Fact]
+	public void CacheKey_WhenAnyComponentDiffers_IsNotEqual() {
+		Func<TestState, int, int> projectorA = (s, a) => s.Counter + a;
+		Func<TestState, int, int> projectorB = (s, a) => s.Counter - a;
+		var target = new Object();
+		var comparer = EqualityComparer<int>.Default;
+		var dispatch = new Store.ErasedComparer<int>(comparer);
+
+		Store.ParameterizedSelectorKey Key(Func<TestState, int, int> p, Object? t, Object c, int arg) =>
+			new(p.Method.MethodHandle, t, arg, c, dispatch);
+
+		var baseline = Key(projectorA, target, comparer, 1);
+
+		Assert.Equal(baseline, Key(projectorA, target, comparer, 1));
+		Assert.NotEqual(baseline, Key(projectorB, target, comparer, 1));
+		Assert.NotEqual(baseline, Key(projectorA, new Object(), comparer, 1));
+		Assert.NotEqual(baseline, Key(projectorA, target, EqualityComparer<int>.Create((x, y) => x == y), 1));
+		Assert.NotEqual(baseline, Key(projectorA, target, comparer, 2));
+	}
+
+	// Every string hashes alike, so cache keys differing only in a null/non-null arg reach Equals;
+	// Equals dereferences its arguments the way a typical user comparer would.
+	private sealed class CollidingLengthComparer : IEqualityComparer<string?> {
+		public bool Equals(string? x, string? y) => x!.Length == y!.Length;
+
+		public int GetHashCode(string? obj) => 0;
 	}
 
 	// === Per-arg projector invocation count ===
