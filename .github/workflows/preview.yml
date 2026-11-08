@@ -8,6 +8,10 @@ on:
     branches:
       - dev
 
+# The publish job widens this for the NuGet OIDC login.
+permissions:
+  contents: read
+
 jobs:
   build-and-test:
     name: Build and Test
