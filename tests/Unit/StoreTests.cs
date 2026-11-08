@@ -1,5 +1,6 @@
 using Blazorify.Flux.Core;
 using Blazorify.Flux.Tests.Unit.Fixtures;
+using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Logging.Abstractions;
 using Xunit;
 
@@ -52,6 +53,20 @@ public class StoreTests {
 		store.AddFeature<TestState>(second);
 
 		Assert.Same(first, store.GetFeature<TestState>());
+	}
+
+	[Fact]
+	public void AddFeature_WhenFeatureAlreadyRegistered_ReducersStillTargetOriginal() {
+		var store = BuildStoreWithDispatcher(out var dispatcher);
+		var original = new TestFeature();
+		var duplicate = new TestFeature();
+		store.AddFeature<TestState>(original);
+		store.AddFeature<TestState>(duplicate);
+
+		dispatcher.Dispatch(new TestActions.Increment());
+
+		Assert.Equal(1, original.State.Counter);
+		Assert.Equal(0, duplicate.State.Counter);
 	}
 
 	[Fact]
@@ -206,6 +221,24 @@ public class StoreTests {
 		store.Initialize();   // must be a no-op
 
 		Assert.Same(featureAfterFirst, store.GetFeature<TestState>());
+	}
+
+	[Fact]
+	public void Initialize_WhenCalledTwice_DoesNotInstantiateFeaturesAgain() {
+		var logger = new RecordingLogger<Store>();
+		var store = new Store(
+			TestServices.Options(typeof(TestFeature).Assembly),
+			TestServices.BuildEmpty(),
+			logger
+		);
+
+		store.Initialize();
+		store.Initialize();
+
+		var entry = Assert.Single(logger.Entries);
+		Assert.Equal(LogLevel.Error, entry.Level);
+		Assert.IsType<InvalidOperationException>(entry.Exception);
+		Assert.Contains($"Failed to initialize feature '{typeof(FailingFeature)}'", entry.Message);
 	}
 
 	[Fact]
