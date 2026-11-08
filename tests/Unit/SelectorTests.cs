@@ -147,7 +147,18 @@ public class SelectorTests {
 		TestServices.BuildWithStore(out var store, out _);
 		var selector = store.Select<TestState, int>(s => s.Counter);
 
-		Assert.Throws<InvalidOperationException>(() => _ = selector.LastResult);
+		var ex = Assert.Throws<InvalidOperationException>(() => _ = selector.LastResult);
+		Assert.Equal("No projection has been computed yet. Call Select(state) first.", ex.Message);
+	}
+
+	[Fact]
+	public void Select_NullArguments_ThrowArgumentNullException() {
+		ClearSyncContext();
+		TestServices.BuildWithStore(out var store, out _);
+
+		Assert.Throws<ArgumentNullException>(() => store.Select<TestState, int>(null!));
+		Assert.Throws<ArgumentNullException>(() => store.Select<TestState, int>(s => s.Counter, null!, EqualityComparer<int>.Default));
+		Assert.Throws<ArgumentNullException>(() => store.Select<TestState, int>(s => s.Counter, ReferenceEqualityComparer.Instance, null!));
 	}
 
 	// === Reset ===
