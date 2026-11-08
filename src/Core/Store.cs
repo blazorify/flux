@@ -377,7 +377,7 @@ namespace Blazorify.Flux.Core {
 			);
 		}
 
-		private readonly struct ParameterizedSelectorKey : IEquatable<ParameterizedSelectorKey> {
+		internal readonly struct ParameterizedSelectorKey : IEquatable<ParameterizedSelectorKey> {
 			private readonly RuntimeMethodHandle projectorMethod;
 			private readonly Object? projectorTarget;
 			private readonly Object? arg;
@@ -402,7 +402,7 @@ namespace Blazorify.Flux.Core {
 					projectorMethod.Value,
 					RuntimeHelpers.GetHashCode(projectorTarget!),
 					RuntimeHelpers.GetHashCode(argComparerIdentity),
-					arg is null ? 0 : argEqualityDispatch.GetHashCode(arg)
+					argEqualityDispatch.GetHashCode(arg)
 				);
 			}
 
@@ -417,7 +417,7 @@ namespace Blazorify.Flux.Core {
 			public override Int32 GetHashCode() => this.hashCode;
 		}
 
-		private sealed class ErasedComparer<T> : IEqualityComparer<Object?> {
+		internal sealed class ErasedComparer<T> : IEqualityComparer<Object?> {
 			private readonly IEqualityComparer<T> inner;
 
 			public ErasedComparer(IEqualityComparer<T> inner) {

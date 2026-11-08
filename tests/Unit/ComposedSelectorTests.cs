@@ -166,6 +166,33 @@ public class ComposedSelectorTests {
 		Assert.Contains(typeof(SecondaryState).FullName!, ex.Message);
 	}
 
+	[Fact]
+	public void Select_WithFirstFeatureMissing_ThrowsNamingFirstState() {
+		ClearSyncContext();
+		TestServices.BuildWithStoreAndFeatures(out var store, out _,
+			s => s.AddFeature<SecondaryState>(new SecondaryFeature()));
+		var counterSel = store.Select<TestState, int>(s => s.Counter);
+		var labelSel = store.Select<SecondaryState, string>(s => s.Label);
+		var composed = store.Select(counterSel, labelSel, (c, l) => $"{l}={c}");
+
+		var ex = Assert.Throws<InvalidOperationException>(() => composed.Select());
+		Assert.Contains(typeof(TestState).FullName!, ex.Message);
+	}
+
+	[Fact]
+	public void Reset_AfterSelect_LastResultThrowsAgain() {
+		ClearSyncContext();
+		TestServices.BuildWithStoreAndFeatures(out var store, out _, RegisterBothFeatures);
+		var counterSel = store.Select<TestState, int>(s => s.Counter);
+		var labelSel = store.Select<SecondaryState, string>(s => s.Label);
+		var composed = store.Select(counterSel, labelSel, (c, l) => $"{l}={c}");
+		composed.Select();
+
+		composed.Reset();
+
+		Assert.Throws<InvalidOperationException>(() => composed.LastResult);
+	}
+
 	// === LastResult ===
 
 	[Fact]
