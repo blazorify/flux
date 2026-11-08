@@ -177,6 +177,66 @@ public class SelectorSubscribeTests {
 		Assert.InRange(invocations, 100, 200);
 	}
 
+	[Fact]
+	public void Subscribe_FeatureRegisteredLater_NullProjectionDeliveredOnceThenSkipped() {
+		ClearSyncContext();
+		TestServices.BuildWithStore(out var store, out var dispatcher);
+		var selector = store.Select<TestState, string?>(s => null);
+		var invocations = 0;
+
+		using var sub = store.Subscribe<TestState, string?>(selector, _ => invocations++);
+		store.AddFeature<TestState>(new TestFeature());
+		dispatcher.Dispatch(new TestActions.Increment());
+		dispatcher.Dispatch(new TestActions.Increment());
+
+		Assert.Equal(1, invocations);
+	}
+
+	[Fact]
+	public void Subscribe_AsyncCallback_FeatureRegisteredLater_NullProjectionDeliveredOnceThenSkipped() {
+		ClearSyncContext();
+		TestServices.BuildWithStore(out var store, out var dispatcher);
+		var selector = store.Select<TestState, string?>(s => null);
+		var invocations = 0;
+
+		using var sub = store.Subscribe<TestState, string?>(selector, _ => {
+			invocations++;
+			return Task.CompletedTask;
+		});
+		store.AddFeature<TestState>(new TestFeature());
+		dispatcher.Dispatch(new TestActions.Increment());
+		dispatcher.Dispatch(new TestActions.Increment());
+
+		Assert.Equal(1, invocations);
+	}
+
+	[Fact]
+	public void Subscribe_AsyncCallback_AfterReplayOfNullProjection_SkipsUnchangedNull() {
+		ClearSyncContext();
+		TestServices.BuildWithStore(out var store, out var dispatcher);
+		store.AddFeature<TestState>(new TestFeature());
+		var selector = store.Select<TestState, string?>(s => null);
+		var invocations = 0;
+
+		using var sub = store.Subscribe<TestState, string?>(selector, _ => {
+			invocations++;
+			return Task.CompletedTask;
+		});
+		dispatcher.Dispatch(new TestActions.Increment());
+
+		Assert.Equal(1, invocations);
+	}
+
+	[Fact]
+	public void Subscribe_AsyncCallback_NullArguments_Throw() {
+		ClearSyncContext();
+		TestServices.BuildWithStore(out var store, out _);
+		var selector = store.Select<TestState, int>(s => s.Counter);
+
+		Assert.Throws<ArgumentNullException>(() => store.Subscribe<TestState, int>(null!, (Func<int, Task>)(_ => Task.CompletedTask)));
+		Assert.Throws<ArgumentNullException>(() => store.Subscribe(selector, (Func<int, Task>)null!));
+	}
+
 	// === Composed Subscribe (IComposedSelector<TResult>) ===
 
 	private static void RegisterBothFeatures(Store store) {
