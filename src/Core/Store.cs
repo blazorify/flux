@@ -21,10 +21,10 @@ namespace Blazorify.Flux.Core {
 		private Boolean isInitialized = false;
 
 		private readonly Dictionary<Type, Object> features = [];
-		private readonly Dictionary<Type, Action<IAction, Action<Object?>>> reducers = [];
-		private readonly Dictionary<Type, Action<IAction>> effects = [];
+		private readonly Dictionary<Type, Action<IAction>> reducers = [];
+		private readonly Dictionary<Type, Func<IAction, Task>> effects = [];
 
-		private readonly Dictionary<Type, List<Delegate>> subscribers = [];
+		private readonly Dictionary<Type, List<SubscriberEntry>> subscribers = [];
 
 		private readonly ConcurrentDictionary<ParameterizedSelectorKey, Object> parameterizedCache = new();
 
@@ -83,17 +83,20 @@ namespace Blazorify.Flux.Core {
 			}
 
 			this.logger.LogDebug("Registering {featureType} feature reducers", typeof(TState));
-			this.reducers[typeof(TState)] = (action, callback) => {
-				feature.Reduce(action, (state) => {
-					this.NotifySubscribers(state);
+			// Subscribers are handed the feature's state as it is when they are called, not the snapshot
+			// this reduce produced: two dispatches racing on different threads could otherwise announce
+			// their snapshots in the opposite order and leave a subscriber holding the older one.
+			this.reducers[typeof(TState)] = (action) => {
+				feature.Reduce(action, _ => {
+					this.NotifySubscribers(feature);
 				});
 			};
 
 			this.logger.LogDebug("Registering {featureType} feature effects", typeof(TState));
-			this.effects[typeof(TState)] = async (action) => {
+			this.effects[typeof(TState)] = (action) => {
 				var dispatcher = this.serviceProvider.GetRequiredService<IDispatcher>();
 
-				await feature.Effect(dispatcher, action);
+				return feature.Effect(dispatcher, action);
 			};
 		}
 
@@ -105,40 +108,62 @@ namespace Blazorify.Flux.Core {
 			return null;
 		}
 
-		private IDisposable SubscribeRaw<TState>(Action<TState> wrapper) where TState : class, new() {
+		/// <summary>
+		/// Registers <paramref name="wrapper"/> for <typeparamref name="TState"/> and, when the feature is
+		/// registered, replays its current state through <paramref name="replay"/> (or the wrapper itself).
+		/// </summary>
+		/// <remarks>
+		/// The replay runs through the same per-subscriber gate as every notification, so a dispatch on
+		/// another thread cannot slip an older state in after it. Exceptions from the replay propagate to
+		/// the caller of Subscribe, as before.
+		/// </remarks>
+		private IDisposable SubscribeRaw<TState>(Action<TState> wrapper, Action<TState>? replay = null) where TState : class, new() {
 			var stateType = typeof(TState);
+			var entry = new SubscriberEntry(wrapper);
 
 			lock (this.subscribers) {
 				if (!this.subscribers.TryGetValue(stateType, out var list)) {
 					this.subscribers.Add(stateType, list = []);
 				}
 
-				list.Add(wrapper);
+				list.Add(entry);
 			}
 
-			return new Subscription(() => {
+			var subscription = new Subscription(() => {
+				// Deactivate first: a notification already snapshotted or posted must not reach a
+				// subscriber that has been disposed (e.g. a component torn down mid-dispatch).
+				entry.Deactivate();
+
 				lock (this.subscribers) {
 					if (this.subscribers.TryGetValue(stateType, out var list)) {
-						list.Remove(wrapper);
+						list.Remove(entry);
 						if (list.Count == 0) {
 							this.subscribers.Remove(stateType);
 						}
 					}
 				}
 			});
+
+			var feature = this.GetFeature<TState>();
+			if (feature is not null) {
+				try {
+					lock (entry.Gate) {
+						(replay ?? wrapper).Invoke(feature.State);
+					}
+				} catch {
+					// The caller never receives the subscription, so it could never dispose it.
+					subscription.Dispose();
+					throw;
+				}
+			}
+
+			return subscription;
 		}
 
 		public IDisposable Subscribe<TState>(Action<TState> callback) where TState : class, new() {
 			ArgumentNullException.ThrowIfNull(callback);
 
-			var subscription = this.SubscribeRaw<TState>(callback);
-
-			var feature = this.GetFeature<TState>();
-			if (feature is not null) {
-				callback.Invoke(feature.State);
-			}
-
-			return subscription;
+			return this.SubscribeRaw<TState>(callback);
 		}
 
 		public IDisposable Subscribe<TState, TResult>(
@@ -151,7 +176,8 @@ namespace Blazorify.Flux.Core {
 			TResult? prev = default;
 			var hasPrev = false;
 
-			var subscription = this.SubscribeRaw<TState>(state => {
+			// The first call (the replay, when the feature exists) always delivers because hasPrev is false.
+			return this.SubscribeRaw<TState>(state => {
 				var next = selector.Select(state);
 				if (!hasPrev || !ReferenceEquals(prev, next)) {
 					prev = next;
@@ -159,16 +185,6 @@ namespace Blazorify.Flux.Core {
 					callback(next);
 				}
 			});
-
-			var feature = this.GetFeature<TState>();
-			if (feature is not null) {
-				var initial = selector.Select(feature.State);
-				prev = initial;
-				hasPrev = true;
-				callback(initial);
-			}
-
-			return subscription;
 		}
 
 		public IDisposable Subscribe<TState, TResult>(
@@ -182,25 +198,23 @@ namespace Blazorify.Flux.Core {
 			var hasPrev = false;
 
 			// Async-void at the Action<TState> boundary; Store-side does not try/catch the user Task — FluxComponent owns that boundary.
-			var subscription = this.SubscribeRaw<TState>(async state => {
-				var next = selector.Select(state);
-				if (!hasPrev || !ReferenceEquals(prev, next)) {
-					prev = next;
+			return this.SubscribeRaw<TState>(
+				async state => {
+					var next = selector.Select(state);
+					if (!hasPrev || !ReferenceEquals(prev, next)) {
+						prev = next;
+						hasPrev = true;
+						await callback(next);
+					}
+				},
+				replay: state => {
+					var initial = selector.Select(state);
+					prev = initial;
 					hasPrev = true;
-					await callback(next);
+					// Initial replay is fire-and-forget to match the sync overload's "replay invokes immediately" contract.
+					_ = callback(initial);
 				}
-			});
-
-			var feature = this.GetFeature<TState>();
-			if (feature is not null) {
-				var initial = selector.Select(feature.State);
-				prev = initial;
-				hasPrev = true;
-				// Initial replay is fire-and-forget to match the sync overload's "replay invokes immediately" contract.
-				_ = callback(initial);
-			}
-
-			return subscription;
+			);
 		}
 
 		public ISelector<TState, TResult> Select<TState, TResult>(Func<TState, TResult> projector)
@@ -337,27 +351,54 @@ namespace Blazorify.Flux.Core {
 			public Int32 GetHashCode(Object? obj) => obj is null ? 0 : this.inner.GetHashCode((T)obj);
 		}
 
-		private void NotifySubscribers<TState>(TState state) where TState : class {
+		private void NotifySubscribers<TState>(IFeature<TState> feature) where TState : class, new() {
 			var stateType = typeof(TState);
 
 			// Read the ambient context once per call, before the lock — it's a thread-local read.
 			var current = SynchronizationContext.Current;
 
+			// Snapshot under the lock and call out after it. Calling subscribers while holding the lock let a
+			// subscriber that (un)subscribes on the same thread — a render mounting or removing a component —
+			// modify the list mid-loop ("Collection was modified"), and every later subscriber missed the change.
+			SubscriberEntry[] snapshot;
 			lock (this.subscribers) {
-				if (this.subscribers.TryGetValue(stateType, out var subscribers)) {
-					foreach (var @delegate in subscribers) {
-						var subscriber = (Action<TState>)@delegate;
-
-						if (current != null) {
-							this.logger.LogDebug("Notifying subscriber for '{StateType}' via SynchronizationContext.", stateType.FullName);
-							current.Post(_ => subscriber(state), null);
-						} else {
-							this.logger.LogDebug("Notifying subscriber for '{StateType}' directly (no SynchronizationContext).", stateType.FullName);
-							subscriber(state);
-						}
-					}
-				} else {
+				if (!this.subscribers.TryGetValue(stateType, out var list) || list.Count == 0) {
 					this.logger.LogDebug("No subscribers found for '{StateType}'.", stateType.FullName);
+					return;
+				}
+
+				snapshot = [.. list];
+			}
+
+			foreach (var entry in snapshot) {
+				if (current != null) {
+					this.logger.LogDebug("Notifying subscriber for '{StateType}' via SynchronizationContext.", stateType.FullName);
+					current.Post(_ => this.Deliver(entry, feature), null);
+				} else {
+					this.logger.LogDebug("Notifying subscriber for '{StateType}' directly (no SynchronizationContext).", stateType.FullName);
+					this.Deliver(entry, feature);
+				}
+			}
+		}
+
+		/// <summary>
+		/// Hands one subscriber the feature's current state.
+		/// </summary>
+		/// <remarks>
+		/// Deliveries to one subscriber are serialized and each reads the state inside the gate, so the last
+		/// delivery a subscriber sees is never older than an earlier one. A throwing subscriber is logged and
+		/// does not stop the other subscribers, or the action's effects, from running.
+		/// </remarks>
+		private void Deliver<TState>(SubscriberEntry entry, IFeature<TState> feature) where TState : class, new() {
+			lock (entry.Gate) {
+				if (!entry.IsActive) {
+					return;
+				}
+
+				try {
+					((Action<TState>)entry.Callback).Invoke(feature.State);
+				} catch (Exception ex) {
+					this.logger.LogError(ex, "A subscriber to '{StateType}' threw while being notified.", typeof(TState).FullName);
 				}
 			}
 		}
@@ -376,14 +417,78 @@ namespace Blazorify.Flux.Core {
 
 		void IStore.ProcessAction(IAction action) {
 			foreach (var (stateType, reduce) in this.reducers) {
-				reduce(action, (state) => {
-					this.NotifySubscribers(state!);
-				});
+				reduce(action);
 			}
 
 			foreach (var (stateType, effect) in this.effects) {
-				effect(action);
+				this.RunEffect(stateType, effect, action);
 			}
+		}
+
+		/// <summary>
+		/// Starts an effect without blocking the dispatch, and makes sure its failure is logged.
+		/// </summary>
+		/// <remarks>
+		/// Effects used to run as async-void lambdas: a throw went unobserved, or was rethrown on the thread
+		/// pool or the renderer's context and took the process or circuit down with it.
+		/// </remarks>
+		private void RunEffect(Type stateType, Func<IAction, Task> effect, IAction action) {
+			Task task;
+
+			try {
+				task = effect(action);
+			} catch (Exception ex) {
+				this.LogEffectFailure(ex, stateType, action);
+				return;
+			}
+
+			if (task.IsCompleted) {
+				if (task.IsFaulted) {
+					this.LogEffectFailure(task.Exception!, stateType, action);
+				}
+
+				return;
+			}
+
+			_ = task.ContinueWith(
+				static (completed, state) => {
+					var (store, stateType, action) = ((Store, Type, IAction))state!;
+					store.LogEffectFailure(completed.Exception!, stateType, action);
+				},
+				(this, stateType, action),
+				CancellationToken.None,
+				TaskContinuationOptions.OnlyOnFaulted | TaskContinuationOptions.ExecuteSynchronously,
+				TaskScheduler.Default
+			);
+		}
+
+		private void LogEffectFailure(Exception exception, Type stateType, IAction action) {
+			var failure = exception is AggregateException { InnerExceptions.Count: 1 } aggregate
+				? aggregate.InnerExceptions[0]
+				: exception;
+
+			this.logger.LogError(failure, "Effect of feature '{StateType}' failed for action {ActionType}", stateType.FullName, action.GetType());
+		}
+
+		/// <summary>
+		/// One subscriber's callback, plus the gate that serializes its deliveries and the flag that stops
+		/// deliveries once its subscription is disposed.
+		/// </summary>
+		private sealed class SubscriberEntry {
+			private volatile Boolean isActive = true;
+
+			public SubscriberEntry(Delegate callback) {
+				this.Callback = callback;
+			}
+
+			public Delegate Callback { get; }
+
+			// A Monitor (reentrant): a subscriber that dispatches inline is delivered to again on the same thread.
+			public Object Gate { get; } = new();
+
+			public Boolean IsActive => this.isActive;
+
+			public void Deactivate() => this.isActive = false;
 		}
 	}
 }
